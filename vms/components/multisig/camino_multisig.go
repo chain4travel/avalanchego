@@ -47,8 +47,7 @@ func (ma *Alias) InitCtx(ctx *snow.Context) {
 }
 
 func (ma *Alias) Verify() error {
-	switch {
-	case len(ma.Memo) > MaxMemoSize:
+	if len(ma.Memo) > MaxMemoSize {
 		return fmt.Errorf("%w: expected not greater than %d bytes, got %d bytes", errMemoIsTooBig, MaxMemoSize, len(ma.Memo))
 	}
 
