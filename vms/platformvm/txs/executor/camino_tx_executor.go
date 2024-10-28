@@ -1537,8 +1537,9 @@ func (e *CaminoStandardTxExecutor) MultisigAliasTx(tx *txs.MultisigAliasTx) erro
 
 	isRemoval := tx.MultisigAlias.Owners.IsZero()
 	isUpdating := tx.MultisigAlias.ID != ids.ShortEmpty
+	isBerlin := e.Config.IsBerlinPhaseActivated(e.State.GetTimestamp())
 
-	if e.Config.IsBerlinPhaseActivated(e.State.GetTimestamp()) {
+	if isBerlin {
 		// TODO @evlekht if we won't have any empty aliases after Berlin, we can move this to alias syntactic verification
 		// verify that alias isn't empty
 		// syntactically valid multisig alias ensures that is removal is also updating
@@ -1627,6 +1628,17 @@ func (e *CaminoStandardTxExecutor) MultisigAliasTx(tx *txs.MultisigAliasTx) erro
 	// update state
 
 	var msigAlias *multisig.AliasWithNonce
+	if !isBerlin {
+		// we need to preserve pre-berlin logic for state consistency
+		msigAlias = &multisig.AliasWithNonce{
+			Alias: multisig.Alias{
+				ID: aliasID,
+				Owners: &secp256k1fx.OutputOwners{
+					Addrs: []ids.ShortID{},
+				},
+			},
+		}
+	}
 	if isRemoval && aliasAddrState != as.AddressStateEmpty {
 		e.State.SetAddressStates(tx.MultisigAlias.ID, as.AddressStateEmpty)
 	} else if !isRemoval {
