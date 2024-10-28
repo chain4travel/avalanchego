@@ -5537,6 +5537,22 @@ func TestCaminoStandardTxExecutorMultisigAliasTx(t *testing.T) {
 		signers     [][]*secp256k1.PrivateKey
 		expectedErr error
 	}{
+		"BerlinPhase, Add empty alias": {
+			state: func(t *testing.T, c *gomock.Controller, utx *txs.MultisigAliasTx, txID ids.ID, cfg *config.Config) *state.MockDiff {
+				s := state.NewMockDiff(c)
+				expect.PhaseTime(t, s, cfg, test.PhaseLast)
+				return s
+			},
+			phase: test.PhaseLast,
+			utx: &txs.MultisigAliasTx{
+				BaseTx: baseTx,
+				Auth:   &secp256k1fx.Input{SigIndices: []uint32{}},
+			},
+			signers: [][]*secp256k1.PrivateKey{
+				{ownerKey},
+			},
+			expectedErr: errEmptyAlias,
+		},
 		"BerlinPhase, Add nested alias": {
 			state: func(t *testing.T, c *gomock.Controller, utx *txs.MultisigAliasTx, txID ids.ID, cfg *config.Config) *state.MockDiff {
 				s := state.NewMockDiff(c)
@@ -5829,6 +5845,41 @@ func TestCaminoStandardTxExecutorMultisigAliasTx(t *testing.T) {
 			},
 			signers: [][]*secp256k1.PrivateKey{
 				{msigKeys[0], msigKeys[1]},
+			},
+		},
+		"OK: add nested alias before Berlin": {
+			state: func(t *testing.T, c *gomock.Controller, utx *txs.MultisigAliasTx, txID ids.ID, cfg *config.Config) *state.MockDiff {
+				s := state.NewMockDiff(c)
+				expect.PhaseTime(t, s, cfg, test.PhaseLast)
+				s.EXPECT().GetMultisigAlias(msigAliasOwners.Addrs[0]).Return(&multisig.AliasWithNonce{}, nil)
+				expect.GetMultisigAliases(t, s, msigAliasOwners.Addrs, []*multisig.AliasWithNonce{{}})
+				s.EXPECT().GetBaseFee().Return(test.TxFee, nil)
+				expect.VerifyLock(t, s, utx.Ins, []*avax.UTXO{ownerUTXO}, []ids.ShortID{ownerAddr}, nil)
+				aliasID := multisig.ComputeAliasID(txID)
+				s.EXPECT().SetMultisigAlias(aliasID, &multisig.AliasWithNonce{
+					Alias: multisig.Alias{
+						ID:     aliasID,
+						Memo:   msigAlias.Memo,
+						Owners: msigAlias.Owners,
+					},
+					Nonce: 0,
+				})
+				expect.ConsumeUTXOs(t, s, utx.Ins)
+				expect.ProduceUTXOs(t, s, utx.Outs, txID, 0)
+				return s
+			},
+			phase: test.PhaseLast,
+			utx: &txs.MultisigAliasTx{
+				BaseTx: baseTx,
+				MultisigAlias: multisig.Alias{
+					ID:     ids.ShortID{},
+					Memo:   msigAlias.Memo,
+					Owners: msigAlias.Owners,
+				},
+				Auth: &secp256k1fx.Input{SigIndices: []uint32{}},
+			},
+			signers: [][]*secp256k1.PrivateKey{
+				{ownerKey},
 			},
 		},
 	}
