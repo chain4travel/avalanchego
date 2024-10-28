@@ -87,6 +87,7 @@ var (
 	errEmptyDepositCreatorAddress        = errors.New("empty deposit creator address, while offer owner isn't empty")
 	errWrongTxUpgradeVersion             = errors.New("wrong tx upgrade version")
 	errNestedMsigAlias                   = errors.New("nested msig aliases are not allowed")
+	errEmptyAlias                        = errors.New("alias id and alias owners cannot be empty both at the same time")
 	errProposalStartToEarly              = errors.New("proposal start time is to early")
 	errProposalToFarInFuture             = fmt.Errorf("proposal start time is more than %s ahead of the current chain time", MaxFutureStartTime)
 	ErrProposalInactive                  = errors.New("proposal is inactive")
@@ -1534,7 +1535,17 @@ func (e *CaminoStandardTxExecutor) MultisigAliasTx(tx *txs.MultisigAliasTx) erro
 		return err
 	}
 
+	isRemoval := tx.MultisigAlias.Owners.IsZero()
+	isUpdating := tx.MultisigAlias.ID != ids.ShortEmpty
+
 	if e.Config.IsBerlinPhaseActivated(e.State.GetTimestamp()) {
+		// TODO @evlekht if we won't have any empty aliases after Berlin, we can move this to alias syntactic verification
+		// verify that alias isn't empty
+		// syntactically valid multisig alias ensures that is removal is also updating
+		if isRemoval && !isUpdating {
+			return errEmptyAlias
+		}
+
 		// verify that alias isn't nesting another alias
 		isNestedMsig, err := e.Fx.IsNestedMultisig(tx.MultisigAlias.Owners, e.State)
 		switch {
@@ -1550,9 +1561,6 @@ func (e *CaminoStandardTxExecutor) MultisigAliasTx(tx *txs.MultisigAliasTx) erro
 	var aliasID ids.ShortID
 	nonce := uint64(0)
 	txID := e.Tx.ID()
-	isRemoval := tx.MultisigAlias.Owners.IsZero()
-	isUpdating := tx.MultisigAlias.ID != ids.ShortEmpty
-	// syntactically valid multisig alias ensures that is removal is also updating
 
 	if isUpdating {
 		if len(e.Tx.Creds) < 2 {

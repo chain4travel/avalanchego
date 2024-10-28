@@ -21,7 +21,6 @@ var (
 	_ verify.State = (*Alias)(nil)
 
 	errMemoIsTooBig = errors.New("msig alias memo is too big")
-	errEmptyAlias   = errors.New("alias id and alias owners cannot be empty both at the same time")
 )
 
 type Owners interface {
@@ -51,8 +50,6 @@ func (ma *Alias) Verify() error {
 	switch {
 	case len(ma.Memo) > MaxMemoSize:
 		return fmt.Errorf("%w: expected not greater than %d bytes, got %d bytes", errMemoIsTooBig, MaxMemoSize, len(ma.Memo))
-	case ma.Owners.IsZero() && ma.ID == ids.ShortEmpty:
-		return errEmptyAlias
 	}
 
 	return ma.Owners.Verify()
