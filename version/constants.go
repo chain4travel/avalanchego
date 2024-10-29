@@ -275,6 +275,7 @@ func GetBanffTime(networkID uint32) time.Time {
 	}
 	return BanffDefaultTime
 }
+
 func GetCortinaTime(networkID uint32) time.Time {
 	if upgradeTime, exists := CortinaTimes[networkID]; exists {
 		return upgradeTime
