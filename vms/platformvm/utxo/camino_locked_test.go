@@ -11,29 +11,22 @@ import (
 	"time"
 
 	"github.com/ava-labs/avalanchego/database"
-	"github.com/ava-labs/avalanchego/database/versiondb"
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ava-labs/avalanchego/snow"
 	"github.com/ava-labs/avalanchego/utils/crypto/secp256k1"
 	"github.com/ava-labs/avalanchego/utils/set"
-	"github.com/ava-labs/avalanchego/version"
 	"github.com/ava-labs/avalanchego/vms/components/avax"
 	"github.com/ava-labs/avalanchego/vms/components/multisig"
 	"github.com/ava-labs/avalanchego/vms/components/verify"
-	"github.com/ava-labs/avalanchego/vms/platformvm/api"
 	"github.com/ava-labs/avalanchego/vms/platformvm/deposit"
 	"github.com/ava-labs/avalanchego/vms/platformvm/locked"
-	"github.com/ava-labs/avalanchego/vms/platformvm/reward"
 	"github.com/ava-labs/avalanchego/vms/platformvm/state"
-	stateTest "github.com/ava-labs/avalanchego/vms/platformvm/state/test"
 	"github.com/ava-labs/avalanchego/vms/platformvm/test"
 	"github.com/ava-labs/avalanchego/vms/platformvm/test/generate"
 	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
 	"github.com/ava-labs/avalanchego/vms/secp256k1fx"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
-
-	db_manager "github.com/ava-labs/avalanchego/database/manager"
 )
 
 func TestUnlockUTXOs(t *testing.T) {
@@ -160,15 +153,7 @@ func TestLock(t *testing.T) {
 	require.NoError(t, err)
 	err = fx.Bootstrapped()
 	require.NoError(t, err)
-
-	config := test.Config(t, test.PhaseLast)
 	ctx := snow.DefaultContextTest()
-	baseDBManager := db_manager.NewMemDB(version.Semantic1_0_0)
-	baseDB := versiondb.New(baseDBManager.Current().Database)
-	rewardsCalc := reward.NewCalculator(config.RewardConfig)
-
-	genesisBytes := test.Genesis(t, ctx.AVAXAssetID, api.Camino{}, nil)
-	testState := stateTest.State(t, config, ctx, baseDB, rewardsCalc, genesisBytes)
 
 	cryptFactory := secp256k1.Factory{}
 	key, err := cryptFactory.NewPrivateKey()
@@ -194,256 +179,242 @@ func TestLock(t *testing.T) {
 
 	existingTxID := ids.GenerateTestID()
 
-	type args struct {
+	tests := map[string]struct {
+		utxos              []*avax.UTXO
 		totalAmountToSpend uint64
 		totalAmountToBurn  uint64
 		appliedLockState   locked.State
-		recipient          *secp256k1fx.OutputOwners
+		to                 *secp256k1fx.OutputOwners
 		change             *secp256k1fx.OutputOwners
-	}
-	type want struct {
-		ins  []*avax.TransferableInput
-		outs []*avax.TransferableOutput
-	}
-	tests := map[string]struct {
-		utxos        []*avax.UTXO
-		args         args
-		generateWant func([]*avax.UTXO) want
-		expectError  error
-		msg          string
+		expectedIns        func([]*avax.UTXO) []*avax.TransferableInput
+		expectedOuts       []*avax.TransferableOutput
+		expectedOwners     [][]*secp256k1.PrivateKey
+		expectedErr        error
 	}{
-		"Happy path bonding": {
-			args: args{
-				totalAmountToSpend: 9,
-				totalAmountToBurn:  1,
-				appliedLockState:   locked.StateBonded,
+		"Nested multisig change owner": {
+			totalAmountToBurn: 1,
+			appliedLockState:  locked.StateUnlocked,
+			utxos: []*avax.UTXO{
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 1, outputOwners, ids.Empty, ids.Empty, true),
 			},
+			change:      &changeOwners, // TODO@ nested msig
+			expectedErr: errNestedMultisigChangeOwner,
+		},
+		"Nested multisig to-owner": {
+			totalAmountToBurn: 1,
+			appliedLockState:  locked.StateUnlocked,
+			utxos: []*avax.UTXO{
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 1, outputOwners, ids.Empty, ids.Empty, true),
+			},
+			to:          &recipientOwners, // TODO@ nested msig
+			expectedErr: errNestedMultisigToOwner,
+		},
+		"Bond unlocked utxo: not enough balance": {
+			totalAmountToSpend: 9,
+			totalAmountToBurn:  1,
+			appliedLockState:   locked.StateBonded,
+			utxos: []*avax.UTXO{
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
+			},
+			expectedErr: errInsufficientBalance,
+		},
+		"Deposit unlocked utxo: not enough balance": {
+			totalAmountToSpend: 9,
+			totalAmountToBurn:  1,
+			appliedLockState:   locked.StateDeposited,
+			utxos: []*avax.UTXO{
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
+			},
+			expectedErr: errInsufficientBalance,
+		},
+		"Bond bonded utxo": {
+			totalAmountToSpend: 9,
+			totalAmountToBurn:  1,
+			appliedLockState:   locked.StateBonded,
+			utxos: []*avax.UTXO{
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 10, outputOwners, ids.Empty, existingTxID, true),
+			},
+			expectedErr: errInsufficientBalance,
+		},
+		"Deposit deposited utxo": {
+			totalAmountToSpend: 9,
+			totalAmountToBurn:  1,
+			appliedLockState:   locked.StateDeposited,
+			utxos: []*avax.UTXO{
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 1, outputOwners, existingTxID, ids.Empty, true),
+			},
+			expectedErr: errInsufficientBalance,
+		},
+		"Deposit bonded for new owner": {
+			totalAmountToSpend: 2,
+			totalAmountToBurn:  1,
+			appliedLockState:   locked.StateDeposited,
+			to:                 &recipientOwners,
+			change:             &changeOwners,
+			utxos: []*avax.UTXO{
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 2, outputOwners, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, existingTxID, true),
+			},
+			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
+				return []*avax.TransferableInput{
+					generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
+					generate.InFromUTXO(t, utxos[1], []uint32{0}, false),
+				}
+			},
+			expectedOuts: []*avax.TransferableOutput{
+				generate.Out(ctx.AVAXAssetID, 2, recipientOwners, locked.ThisTxID, existingTxID),
+				generate.Out(ctx.AVAXAssetID, 3, outputOwners, ids.Empty, existingTxID),
+				generate.Out(ctx.AVAXAssetID, 1, changeOwners, ids.Empty, ids.Empty),
+			},
+		},
+		"OK: burn, full transfer with change to other address": {
+			totalAmountToSpend: 1,
+			totalAmountToBurn:  1,
+			appliedLockState:   locked.StateUnlocked,
+			change:             &changeOwners,
+			to:                 &recipientOwners,
+			utxos: []*avax.UTXO{
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
+			},
+			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
+				return []*avax.TransferableInput{
+					generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
+				}
+			},
+			expectedOuts: []*avax.TransferableOutput{
+				generate.Out(ctx.AVAXAssetID, 1, recipientOwners, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 3, changeOwners, ids.Empty, ids.Empty),
+			},
+		},
+		"OK: burn, self transfer": {
+			totalAmountToSpend: 1,
+			totalAmountToBurn:  1,
+			appliedLockState:   locked.StateUnlocked,
+			utxos: []*avax.UTXO{
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
+			},
+			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
+				return []*avax.TransferableInput{
+					generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
+				}
+			},
+			expectedOuts: []*avax.TransferableOutput{
+				generate.Out(ctx.AVAXAssetID, 4, outputOwners, ids.Empty, ids.Empty),
+			},
+		},
+		"OK: burn, self transfer with change to other address": {
+			totalAmountToSpend: 1,
+			totalAmountToBurn:  1,
+			appliedLockState:   locked.StateUnlocked,
+			change:             &changeOwners,
+			utxos: []*avax.UTXO{
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
+			},
+			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
+				return []*avax.TransferableInput{
+					generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
+				}
+			},
+			expectedOuts: []*avax.TransferableOutput{
+				generate.Out(ctx.AVAXAssetID, 1, outputOwners, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 3, changeOwners, ids.Empty, ids.Empty),
+			},
+		},
+		"OK: bond unlocked utxos": {
+			totalAmountToSpend: 9,
+			totalAmountToBurn:  1,
+			appliedLockState:   locked.StateBonded,
 			utxos: []*avax.UTXO{
 				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
 				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 10, outputOwners, ids.Empty, ids.Empty, true),
 			},
-			generateWant: func(utxos []*avax.UTXO) want {
-				return want{
-					ins: []*avax.TransferableInput{
-						generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
-						generate.InFromUTXO(t, utxos[1], []uint32{0}, false),
-					},
-					outs: []*avax.TransferableOutput{
-						generate.Out(ctx.AVAXAssetID, 9, outputOwners, ids.Empty, locked.ThisTxID),
-						generate.Out(ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty),
-					},
+			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
+				return []*avax.TransferableInput{
+					generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
+					generate.InFromUTXO(t, utxos[1], []uint32{0}, false),
 				}
 			},
-			msg: "Happy path bonding",
-		},
-		"Happy path bonding deposited amount": {
-			args: args{
-				totalAmountToSpend: 9,
-				totalAmountToBurn:  1,
-				appliedLockState:   locked.StateBonded,
+			expectedOuts: []*avax.TransferableOutput{
+				generate.Out(ctx.AVAXAssetID, 9, outputOwners, ids.Empty, locked.ThisTxID),
+				generate.Out(ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty),
 			},
+		},
+		"OK: bond deposited utxos": {
+			totalAmountToSpend: 9,
+			totalAmountToBurn:  1,
+			appliedLockState:   locked.StateBonded,
 			utxos: []*avax.UTXO{
 				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
 				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 10, outputOwners, existingTxID, ids.Empty, true),
 			},
-			generateWant: func(utxos []*avax.UTXO) want {
-				return want{
-					ins: []*avax.TransferableInput{
-						generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
-						generate.InFromUTXO(t, utxos[1], []uint32{0}, false),
-					},
-					outs: []*avax.TransferableOutput{
-						generate.Out(ctx.AVAXAssetID, 9, outputOwners, existingTxID, locked.ThisTxID),
-						generate.Out(ctx.AVAXAssetID, 1, outputOwners, existingTxID, ids.Empty),
-						generate.Out(ctx.AVAXAssetID, 4, outputOwners, ids.Empty, ids.Empty),
-					},
+			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
+				return []*avax.TransferableInput{
+					generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
+					generate.InFromUTXO(t, utxos[1], []uint32{0}, false),
 				}
 			},
-			msg: "Happy path bonding deposited amount",
+			expectedOuts: []*avax.TransferableOutput{
+				generate.Out(ctx.AVAXAssetID, 9, outputOwners, existingTxID, locked.ThisTxID),
+				generate.Out(ctx.AVAXAssetID, 1, outputOwners, existingTxID, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 4, outputOwners, ids.Empty, ids.Empty),
+			},
 		},
-		"Bonding already bonded amount": {
-			args: args{
-				totalAmountToSpend: 9,
-				totalAmountToBurn:  1,
-				appliedLockState:   locked.StateBonded,
-			},
-			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 10, outputOwners, ids.Empty, existingTxID, true),
-			},
-			expectError: errInsufficientBalance,
-			msg:         "Bonding already bonded amount",
-		},
-		"Not enough balance to bond": {
-			args: args{
-				totalAmountToSpend: 9,
-				totalAmountToBurn:  1,
-				appliedLockState:   locked.StateBonded,
-			},
-			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
-			},
-			expectError: errInsufficientBalance,
-			msg:         "Not enough balance to bond",
-		},
-		"Happy path depositing": {
-			args: args{
-				totalAmountToSpend: 9,
-				totalAmountToBurn:  1,
-				appliedLockState:   locked.StateDeposited,
-			},
+		"OK: depositing": {
+			totalAmountToSpend: 9,
+			totalAmountToBurn:  1,
+			appliedLockState:   locked.StateDeposited,
 			utxos: []*avax.UTXO{
 				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
 				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 10, outputOwners, ids.Empty, ids.Empty, true),
 			},
-			generateWant: func(utxos []*avax.UTXO) want {
-				return want{
-					ins: []*avax.TransferableInput{
-						generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
-						generate.InFromUTXO(t, utxos[1], []uint32{0}, false),
-					},
-					outs: []*avax.TransferableOutput{
-						generate.Out(ctx.AVAXAssetID, 9, outputOwners, locked.ThisTxID, ids.Empty),
-						generate.Out(ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty),
-					},
+			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
+				return []*avax.TransferableInput{
+					generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
+					generate.InFromUTXO(t, utxos[1], []uint32{0}, false),
 				}
 			},
-			msg: "Happy path depositing",
-		},
-		"Happy path depositing bonded amount": {
-			args: args{
-				totalAmountToSpend: 9,
-				totalAmountToBurn:  1,
-				appliedLockState:   locked.StateDeposited,
+			expectedOuts: []*avax.TransferableOutput{
+				generate.Out(ctx.AVAXAssetID, 9, outputOwners, locked.ThisTxID, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty),
 			},
+		},
+		"OK: depositing bonded amount": {
+			totalAmountToSpend: 9,
+			totalAmountToBurn:  1,
+			appliedLockState:   locked.StateDeposited,
 			utxos: []*avax.UTXO{
 				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
 				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 10, outputOwners, ids.Empty, existingTxID, true),
 			},
-			generateWant: func(utxos []*avax.UTXO) want {
-				return want{
-					ins: []*avax.TransferableInput{
-						generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
-						generate.InFromUTXO(t, utxos[1], []uint32{0}, false),
-					},
-					outs: []*avax.TransferableOutput{
-						generate.Out(ctx.AVAXAssetID, 9, outputOwners, locked.ThisTxID, existingTxID),
-						generate.Out(ctx.AVAXAssetID, 1, outputOwners, ids.Empty, existingTxID),
-						generate.Out(ctx.AVAXAssetID, 4, outputOwners, ids.Empty, ids.Empty),
-					},
+			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
+				return []*avax.TransferableInput{
+					generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
+					generate.InFromUTXO(t, utxos[1], []uint32{0}, false),
 				}
 			},
-			msg: "Happy path depositing bonded amount",
-		},
-		"Depositing already deposited amount": {
-			args: args{
-				totalAmountToSpend: 9,
-				totalAmountToBurn:  1,
-				appliedLockState:   locked.StateDeposited,
-			},
-			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 1, outputOwners, existingTxID, ids.Empty, true),
-			},
-			expectError: errInsufficientBalance,
-			msg:         "Depositing already deposited amount",
-		},
-		"Not enough balance to deposit": {
-			args: args{
-				totalAmountToSpend: 9,
-				totalAmountToBurn:  1,
-				appliedLockState:   locked.StateDeposited,
-			},
-			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
-			},
-			expectError: errInsufficientBalance,
-			msg:         "Not enough balance to deposit",
-		},
-		"Self Transfer": {
-			args: args{
-				totalAmountToSpend: 1,
-				totalAmountToBurn:  1,
-				appliedLockState:   locked.StateUnlocked,
-			},
-			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
-			},
-			generateWant: func(utxos []*avax.UTXO) want {
-				return want{
-					ins: []*avax.TransferableInput{
-						generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
-					},
-					outs: []*avax.TransferableOutput{
-						generate.Out(ctx.AVAXAssetID, 4, outputOwners, ids.Empty, ids.Empty),
-					},
-				}
-			},
-		},
-		"Self Transfer and change": {
-			args: args{
-				totalAmountToSpend: 1,
-				totalAmountToBurn:  1,
-				appliedLockState:   locked.StateUnlocked,
-				change:             &changeOwners,
-			},
-			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
-			},
-			generateWant: func(utxos []*avax.UTXO) want {
-				return want{
-					ins: []*avax.TransferableInput{
-						generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
-					},
-					outs: []*avax.TransferableOutput{
-						generate.Out(ctx.AVAXAssetID, 1, outputOwners, ids.Empty, ids.Empty),
-						generate.Out(ctx.AVAXAssetID, 3, changeOwners, ids.Empty, ids.Empty),
-					},
-				}
-			},
-		},
-		"Recipient transfer and change": {
-			args: args{
-				totalAmountToSpend: 1,
-				totalAmountToBurn:  1,
-				appliedLockState:   locked.StateUnlocked,
-				change:             &changeOwners,
-				recipient:          &recipientOwners,
-			},
-			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
-			},
-			generateWant: func(utxos []*avax.UTXO) want {
-				return want{
-					ins: []*avax.TransferableInput{
-						generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
-					},
-					outs: []*avax.TransferableOutput{
-						generate.Out(ctx.AVAXAssetID, 1, recipientOwners, ids.Empty, ids.Empty),
-						generate.Out(ctx.AVAXAssetID, 3, changeOwners, ids.Empty, ids.Empty),
-					},
-				}
+			expectedOuts: []*avax.TransferableOutput{
+				generate.Out(ctx.AVAXAssetID, 9, outputOwners, locked.ThisTxID, existingTxID),
+				generate.Out(ctx.AVAXAssetID, 1, outputOwners, ids.Empty, existingTxID),
+				generate.Out(ctx.AVAXAssetID, 4, outputOwners, ids.Empty, ids.Empty),
 			},
 		},
 		"OK: deposit for new owner": {
-			args: args{
-				totalAmountToSpend: 1,
-				totalAmountToBurn:  1,
-				appliedLockState:   locked.StateDeposited,
-				recipient:          &recipientOwners,
-				change:             &changeOwners,
-			},
+			totalAmountToSpend: 1,
+			totalAmountToBurn:  1,
+			appliedLockState:   locked.StateDeposited,
+			to:                 &recipientOwners,
+			change:             &changeOwners,
 			utxos: []*avax.UTXO{
 				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
 			},
-			generateWant: func(utxos []*avax.UTXO) want {
-				return want{
-					ins: []*avax.TransferableInput{
-						generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
-					},
-					outs: []*avax.TransferableOutput{
-						generate.Out(ctx.AVAXAssetID, 1, recipientOwners, locked.ThisTxID, ids.Empty),
-						generate.Out(ctx.AVAXAssetID, 3, changeOwners, ids.Empty, ids.Empty),
-					},
+			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
+				return []*avax.TransferableInput{
+					generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
 				}
+			},
+			expectedOuts: []*avax.TransferableOutput{
+				generate.Out(ctx.AVAXAssetID, 1, recipientOwners, locked.ThisTxID, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 3, changeOwners, ids.Empty, ids.Empty),
 			},
 		},
 	}
@@ -452,45 +423,43 @@ func TestLock(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			require := require.New(t)
 
+			// setup state mock
 			state := state.NewMockState(ctrl)
 			utxoIDs := []ids.ID{}
-			var want want
-			var expectedSigners [][]*secp256k1.PrivateKey
-			if tt.expectError == nil {
-				want = tt.generateWant(tt.utxos)
-				expectedSigners = make([][]*secp256k1.PrivateKey, len(want.ins))
-				for i := range want.ins {
-					expectedSigners[i] = []*secp256k1.PrivateKey{key}
-				}
-			}
-
 			for _, utxo := range tt.utxos {
-				testState.AddUTXO(utxo)
 				utxoIDs = append(utxoIDs, utxo.InputID())
-				state.EXPECT().GetUTXO(utxo.InputID()).Return(testState.GetUTXO(utxo.InputID()))
+				state.EXPECT().GetUTXO(utxo.InputID()).Return(utxo)
 			}
 			state.EXPECT().UTXOIDs(address.Bytes(), ids.Empty, math.MaxInt).Return(utxoIDs, nil)
 			state.EXPECT().GetMultisigAlias(gomock.Any()).Return(nil, database.ErrNotFound).AnyTimes()
 
-			testHandler := defaultCaminoHandler(t)
-
-			ins, outs, signers, _, err := testHandler.Lock(
+			ins, outs, signers, owners, err := defaultCaminoHandler(t).Lock(
 				state,
 				[]*secp256k1.PrivateKey{key},
-				tt.args.totalAmountToSpend,
-				tt.args.totalAmountToBurn,
-				tt.args.appliedLockState,
-				tt.args.recipient,
-				tt.args.change,
+				tt.totalAmountToSpend,
+				tt.totalAmountToBurn,
+				tt.appliedLockState,
+				tt.to,
+				tt.change,
 				0,
 			)
 
-			avax.SortTransferableOutputs(want.outs, txs.Codec)
+			var expectedSigners [][]*secp256k1.PrivateKey
+			var expectedIns []*avax.TransferableInput
 
-			require.ErrorIs(err, tt.expectError, tt.msg)
-			require.Equal(want.ins, ins)
-			require.Equal(want.outs, outs)
+			if tt.expectedIns != nil {
+				expectedIns = tt.expectedIns(tt.utxos)
+				expectedSigners = make([][]*secp256k1.PrivateKey, len(expectedIns))
+				for i := range expectedIns {
+					expectedSigners[i] = []*secp256k1.PrivateKey{key}
+				}
+			}
+
+			require.ErrorIs(err, tt.expectedErr)
+			require.Equal(expectedIns, ins)
+			require.Equal(tt.expectedOuts, outs)
 			require.Equal(expectedSigners, signers)
+			require.Equal(tt.expectedOwners, owners)
 		})
 	}
 }
@@ -1553,6 +1522,142 @@ func TestVerifyUnlockDepositedUTXOs(t *testing.T) {
 				tt.args.verifyCreds,
 			)
 			require.ErrorIs(t, err, tt.expectedErr)
+		})
+	}
+}
+
+// TODO @evlekht add otherAssetID utxos to test, equal amounts and equal lockTxIDs
+func TestSortUTXOs(t *testing.T) {
+	bondTxID1 := ids.ID{1, 1}
+	bondTxID2 := ids.ID{1, 2}
+	depositTxID1 := ids.ID{2, 1}
+	depositTxID2 := ids.ID{2, 2}
+
+	originalUTXOs := []*avax.UTXO{
+		// depositTxID1, bondTxID1
+		generate.UTXO(ids.ID{0}, test.AVAXAssetID, 2, secp256k1fx.OutputOwners{}, depositTxID1, bondTxID1, true),
+		generate.UTXO(ids.ID{1}, test.AVAXAssetID, 3, secp256k1fx.OutputOwners{}, depositTxID1, bondTxID1, true),
+		generate.UTXO(ids.ID{2}, test.AVAXAssetID, 1, secp256k1fx.OutputOwners{}, depositTxID1, bondTxID1, true),
+		// depositTxID1, bondTxID2
+		generate.UTXO(ids.ID{3}, test.AVAXAssetID, 2, secp256k1fx.OutputOwners{}, depositTxID1, bondTxID2, true),
+		generate.UTXO(ids.ID{4}, test.AVAXAssetID, 3, secp256k1fx.OutputOwners{}, depositTxID1, bondTxID2, true),
+		generate.UTXO(ids.ID{5}, test.AVAXAssetID, 1, secp256k1fx.OutputOwners{}, depositTxID1, bondTxID2, true),
+
+		// depositTxID2, bondTxID1
+		generate.UTXO(ids.ID{6}, test.AVAXAssetID, 2, secp256k1fx.OutputOwners{}, depositTxID2, bondTxID1, true),
+		generate.UTXO(ids.ID{7}, test.AVAXAssetID, 3, secp256k1fx.OutputOwners{}, depositTxID2, bondTxID1, true),
+		generate.UTXO(ids.ID{8}, test.AVAXAssetID, 1, secp256k1fx.OutputOwners{}, depositTxID2, bondTxID1, true),
+		// depositTxID2, bondTxID2
+		generate.UTXO(ids.ID{9}, test.AVAXAssetID, 2, secp256k1fx.OutputOwners{}, depositTxID2, bondTxID2, true),
+		generate.UTXO(ids.ID{10}, test.AVAXAssetID, 3, secp256k1fx.OutputOwners{}, depositTxID2, bondTxID2, true),
+		generate.UTXO(ids.ID{11}, test.AVAXAssetID, 1, secp256k1fx.OutputOwners{}, depositTxID2, bondTxID2, true),
+
+		// depositTxID1, ids.Empty
+		generate.UTXO(ids.ID{12}, test.AVAXAssetID, 2, secp256k1fx.OutputOwners{}, depositTxID1, ids.Empty, true),
+		generate.UTXO(ids.ID{13}, test.AVAXAssetID, 3, secp256k1fx.OutputOwners{}, depositTxID1, ids.Empty, true),
+		generate.UTXO(ids.ID{14}, test.AVAXAssetID, 1, secp256k1fx.OutputOwners{}, depositTxID1, ids.Empty, true),
+		// depositTxID2, ids.Empty
+		generate.UTXO(ids.ID{15}, test.AVAXAssetID, 2, secp256k1fx.OutputOwners{}, depositTxID2, ids.Empty, true),
+		generate.UTXO(ids.ID{16}, test.AVAXAssetID, 3, secp256k1fx.OutputOwners{}, depositTxID2, ids.Empty, true),
+		generate.UTXO(ids.ID{17}, test.AVAXAssetID, 1, secp256k1fx.OutputOwners{}, depositTxID2, ids.Empty, true),
+
+		// ids.Empty, bondTxID1
+		generate.UTXO(ids.ID{18}, test.AVAXAssetID, 2, secp256k1fx.OutputOwners{}, ids.Empty, bondTxID1, true),
+		generate.UTXO(ids.ID{19}, test.AVAXAssetID, 3, secp256k1fx.OutputOwners{}, ids.Empty, bondTxID1, true),
+		generate.UTXO(ids.ID{20}, test.AVAXAssetID, 1, secp256k1fx.OutputOwners{}, ids.Empty, bondTxID1, true),
+		// ids.Empty, bondTxID2
+		generate.UTXO(ids.ID{21}, test.AVAXAssetID, 2, secp256k1fx.OutputOwners{}, ids.Empty, bondTxID2, true),
+		generate.UTXO(ids.ID{22}, test.AVAXAssetID, 3, secp256k1fx.OutputOwners{}, ids.Empty, bondTxID2, true),
+		generate.UTXO(ids.ID{23}, test.AVAXAssetID, 1, secp256k1fx.OutputOwners{}, ids.Empty, bondTxID2, true),
+
+		// ids.Empty, ids.Empty
+		generate.UTXO(ids.ID{24}, test.AVAXAssetID, 2, secp256k1fx.OutputOwners{}, ids.Empty, ids.Empty, true),
+		generate.UTXO(ids.ID{25}, test.AVAXAssetID, 3, secp256k1fx.OutputOwners{}, ids.Empty, ids.Empty, true),
+		generate.UTXO(ids.ID{26}, test.AVAXAssetID, 1, secp256k1fx.OutputOwners{}, ids.Empty, ids.Empty, true),
+	}
+	tests := map[string]struct {
+		allowedAssetID ids.ID
+		lockState      locked.State
+		expectedUTXOs  func([]*avax.UTXO) []*avax.UTXO
+	}{
+		"StateUnlocked": {
+			allowedAssetID: test.AVAXAssetID,
+			lockState:      locked.StateUnlocked,
+			expectedUTXOs: func(utxos []*avax.UTXO) []*avax.UTXO {
+				return []*avax.UTXO{
+					utxos[26], utxos[24], utxos[25], // unlocked, ascend amount
+					// in case of equal amounts, order is shuffled, but its deterministic by sort inner algorithm
+					utxos[11], utxos[2], utxos[5], utxos[23], // locked, ignore lockTxIDs order, 1 nCAM
+					utxos[20], utxos[8], utxos[17], utxos[14], //
+					utxos[12], utxos[18], utxos[3], utxos[6], // locked, ignore lockTxIDs order, 2 nCAM
+					utxos[15], utxos[21], utxos[9], utxos[0], //
+					utxos[19], utxos[7], utxos[16], utxos[22], // locked, ignore lockTxIDs order, 2 nCAM
+					utxos[10], utxos[4], utxos[13], utxos[1], //
+				}
+			},
+		},
+		"StateDeposited": {
+			allowedAssetID: test.AVAXAssetID,
+			lockState:      locked.StateDeposited,
+			expectedUTXOs: func(utxos []*avax.UTXO) []*avax.UTXO {
+				return []*avax.UTXO{
+					// bondTxID descending, amount ascending
+					utxos[23], utxos[21], utxos[22], // bonded, bondTxID2, ascend amount
+					utxos[20], utxos[18], utxos[19], // bonded, bondTxID1, ascend amount
+					utxos[26], utxos[24], utxos[25], // unlocked, ascend amount
+					// DepositTxID order is actually semi-shuffled and considered "ignored".
+					// It's deterministic by sort inner algorithm
+					utxos[11], utxos[5], //             deposited-bonded, bondTxID2, 1 nCAM
+					utxos[3], utxos[9], //              deposited-bonded, bondTxID2, 2 nCAM
+					utxos[4], utxos[10], //             deposited-bonded, bondTxID2, 3 nCAM
+					utxos[8], utxos[2], //              deposited-bonded, bondTxID1, 1 nCAM
+					utxos[6], utxos[0], //              deposited-bonded, bondTxID1, 2 nCAM
+					utxos[7], utxos[1], //              deposited-bonded, bondTxID1, 3 nCAM
+					utxos[17], utxos[14], //            deposited, 1 nCAM
+					utxos[15], utxos[12], //            deposited, 2 nCAM
+					utxos[16], utxos[13], //            deposited, 3 nCAM
+				}
+			},
+		},
+		"StateBonded": {
+			allowedAssetID: test.AVAXAssetID,
+			lockState:      locked.StateBonded,
+			expectedUTXOs: func(utxos []*avax.UTXO) []*avax.UTXO {
+				return []*avax.UTXO{
+					// depositTxID descending, amount ascending
+					utxos[17], utxos[15], utxos[16], // deposited, depositTxID2, ascend amount
+					utxos[14], utxos[12], utxos[13], // deposited, depositTxID1, ascend amount
+					utxos[26], utxos[24], utxos[25], // unlocked, ascend amount
+					// BondTxID order is actually semi-shuffled and considered "ignored".
+					// It's deterministic by sort inner algorithm
+					utxos[11], utxos[8], //             deposited-bonded, depositTxID2, 1 nCAM
+					utxos[6], utxos[9], //              deposited-bonded, depositTxID2, 2 nCAM
+					utxos[7], utxos[10], //             deposited-bonded, depositTxID2, 3 nCAM
+					utxos[5], utxos[2], //              deposited-bonded, depositTxID1, 1 nCAM
+					utxos[0], utxos[3], //              deposited-bonded, depositTxID1, 2 nCAM
+					utxos[4], utxos[1], //              deposited-bonded, depositTxID1, 3 nCAM
+					utxos[23], utxos[20], //            bonded, 1 nCAM
+					utxos[18], utxos[21], //            bonded, 2 nCAM
+					utxos[22], utxos[19], //            bonded, 3 nCAM
+				}
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			utxos := make([]*avax.UTXO, len(originalUTXOs))
+			copy(utxos, originalUTXOs)
+
+			sortUTXOs(utxos, tt.allowedAssetID, tt.lockState)
+
+			// Uncomment in case of debugging. This will provide more readable error messages with exact utxo indexes
+			//
+			// expectedUTXOs := tt.expectedUTXOs(originalUTXOs)
+			// for i := range utxos {
+			// 	require.Equal(t, expectedUTXOs[i], utxos[i], "[%d], expect %d, got %d",
+			// 		i, expectedUTXOs[i].TxID[0], utxos[i].TxID[0])
+			// }
+			require.Equal(t, tt.expectedUTXOs(originalUTXOs), utxos)
 		})
 	}
 }

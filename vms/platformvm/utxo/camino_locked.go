@@ -45,6 +45,8 @@ var (
 	errNotLockedUTXO             = errors.New("can't spend unlocked utxo")
 	errUTXOOutTypeOrAmtMismatch  = errors.New("inner out isn't *secp256k1fx.TransferOutput or inner out amount != input.Amt")
 	errCantSpend                 = errors.New("can't spend utxo with given credential and input")
+	errNestedMultisigChangeOwner = errors.New("change owner can't be nested multisig owner")
+	errNestedMultisigToOwner     = errors.New("to-owner can't be nested multisig owner")
 )
 
 // Creates UTXOs from [outs] and adds them to the UTXO set.
@@ -1285,6 +1287,8 @@ func (sort *innerSortUTXOs) Less(i, j int) bool {
 		// Sort all locks last
 		iEmpty := *iLockIDs == locked.IDsEmpty
 		if iEmpty != (*jLockIDs == locked.IDsEmpty) {
+			// if only i unlocked, i < j
+			// if only j unlocked, j < i
 			return iEmpty
 		}
 	} else {
@@ -1300,15 +1304,18 @@ func (sort *innerSortUTXOs) Less(i, j int) bool {
 		}
 
 		if *iLockTxID == ids.Empty && *jLockTxID != ids.Empty {
+			// if i isn't locked with lockState, but j is, i < j
 			return true
 		} else if *iLockTxID != ids.Empty && *jLockTxID == ids.Empty {
+			// if i is locked with lockState, but j isn't, j < i
 			return false
 		}
 
+		// utxo with smaller otherLockTxID goes last, so we'll have unlocked utxos in the end
 		switch bytes.Compare(iOtherLockTxID[:], jOtherLockTxID[:]) {
-		case -1:
+		case -1: // iOtherLockTxID < jOtherLockTxID,  j < i
 			return false
-		case 1:
+		case 1: // iOtherLockTxID > jOtherLockTxID,  i < j
 			return true
 		}
 	}
@@ -1335,6 +1342,7 @@ func (sort *innerSortUTXOs) Swap(i, j int) {
 	u[j], u[i] = u[i], u[j]
 }
 
+// will not retain order by lockTxID if lockState is unlocked
 func sortUTXOs(utxos []*avax.UTXO, allowedAssetID ids.ID, lockState locked.State) {
 	sort.Sort(&innerSortUTXOs{utxos: utxos, allowedAssetID: allowedAssetID, lockState: lockState})
 }
