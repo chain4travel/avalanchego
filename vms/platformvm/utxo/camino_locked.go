@@ -259,38 +259,62 @@ func (h *handler) Lock(
 	totalAmountBurned := uint64(0)
 
 	type lockedAndRemainedAmounts struct {
-		locked   uint64
-		remained uint64
+		lockedOrTransferred uint64
+		remained            uint64
 	}
-	type OwnerID struct {
-		owners   *secp256k1fx.OutputOwners
-		ownersID *ids.ID
+	type Owner struct {
+		secpOwners *secp256k1fx.OutputOwners
+		id         *ids.ID
 	}
 	type OwnerAmounts struct {
-		amounts map[ids.ID]lockedAndRemainedAmounts
-		owners  secp256k1fx.OutputOwners
+		amounts    map[ids.ID]lockedAndRemainedAmounts
+		secpOwners *secp256k1fx.OutputOwners
 	}
 	// Track the amount of transfers and their owners
 	// if appliedLockState == bond, then otherLockTxID is depositTxID and vice versa
 	// ownerID -> otherLockTxID -> AAAA
 	insAmounts := make(map[ids.ID]OwnerAmounts)
 
-	var toOwnerID *ids.ID
-	if to != nil && (appliedLockState == locked.StateUnlocked || appliedLockState == locked.StateDeposited) {
+	newOwner := Owner{}
+	if to != nil && appliedLockState == locked.StateUnlocked {
+		isNestedMsig, err := h.fx.IsNestedMultisig(to, utxoDB)
+		switch {
+		case err != nil:
+			err = fmt.Errorf("failed to check if to-owner is nested multisig owner: %w", err)
+		case isNestedMsig:
+			err = errNestedMultisigToOwner
+		}
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+
 		id, err := txs.GetOwnerID(to)
 		if err != nil {
+			err = fmt.Errorf("failed to get ownerID for to-owner: %w", err)
 			return nil, nil, nil, nil, err
 		}
-		toOwnerID = &id
+		newOwner = Owner{to, &id}
 	}
 
-	var changeOwnerID *ids.ID
+	changeOwner := Owner{}
 	if change != nil {
-		id, err := txs.GetOwnerID(change)
+		isNestedMsig, err := h.fx.IsNestedMultisig(change, utxoDB)
+		switch {
+		case err != nil:
+			err = fmt.Errorf("failed to check if change owner is nested multisig owner: %w", err)
+		case isNestedMsig:
+			err = errNestedMultisigChangeOwner
+		}
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
-		changeOwnerID = &id
+
+		id, err := txs.GetOwnerID(change)
+		if err != nil {
+			err = fmt.Errorf("failed to get ownerID for change owner': %w", err)
+			return nil, nil, nil, nil, err
+		}
+		changeOwner = Owner{change, &id}
 	}
 
 	for _, utxo := range utxos {
@@ -320,6 +344,11 @@ func (h *handler) Lock(
 			lockIDs = lockedOut.IDs
 		}
 
+		// we only consume locked utxos if we are not transferring them to new owner
+		if lockIDs.IsLocked() && newOwner.id != nil {
+			continue
+		}
+
 		innerOut, ok := out.(*secp256k1fx.TransferOutput)
 		if !ok {
 			// We only know how to clone secp256k1 outputs for now
@@ -347,30 +376,28 @@ func (h *handler) Lock(
 		}
 
 		remainingValue := in.Amount()
+		amountToBurn := uint64(0)
 
-		lockedOwnerID := OwnerID{&innerOut.OutputOwners, &outOwnerID}
-		remainingOwnerID := lockedOwnerID
+		toOwner := Owner{&innerOut.OutputOwners, &outOwnerID}
+		remainingOwner := toOwner
 
-		if !lockIDs.IsLocked() {
+		if !lockIDs.IsLocked() { // utxo isn't locked
 			// Burn any value that should be burned
-			amountToBurn := math.Min(
+			amountToBurn = math.Min(
 				totalAmountToBurn-totalAmountBurned, // Amount we still need to burn
 				remainingValue,                      // Amount available to burn
 			)
 			totalAmountBurned += amountToBurn
 			remainingValue -= amountToBurn
 
-			if toOwnerID != nil {
-				lockedOwnerID = OwnerID{to, toOwnerID}
+			if newOwner.id != nil {
+				// transferring unlocked utxo spent tokens to new owner
+				toOwner = newOwner
 			}
 
-			isNestedMsig, err := h.fx.IsNestedMultisig(&innerOut.OutputOwners, utxoDB)
-			if err != nil {
-				return nil, nil, nil, nil, err
-			}
-
-			if changeOwnerID != nil && !isNestedMsig {
-				remainingOwnerID = OwnerID{change, changeOwnerID}
+			if changeOwner.id != nil {
+				// transferring unlocked utxo remainder to change owner
+				remainingOwner = changeOwner
 			}
 		}
 
@@ -382,7 +409,8 @@ func (h *handler) Lock(
 		totalAmountLocked += amountToLock
 		remainingValue -= amountToLock
 
-		if amountToLock > 0 || totalAmountToBurn > 0 {
+		if amountToLock > 0 || amountToBurn > 0 {
+			// if utxo is locked, than input should be locked as well
 			if lockIDs.IsLocked() {
 				in = &locked.In{
 					IDs:            lockIDs,
@@ -390,6 +418,7 @@ func (h *handler) Lock(
 				}
 			}
 
+			// creating transfer input for consumed utxo
 			ins = append(ins, &avax.TransferableInput{
 				UTXOID: avax.UTXOID{
 					TxID:        utxo.TxID,
@@ -401,100 +430,114 @@ func (h *handler) Lock(
 			signers = append(signers, inSigners)
 			owners = append(owners, &innerOut.OutputOwners)
 
+			// if original utxo is unlocked, then otherLockTxID will be empty
 			otherLockTxID := lockIDs.DepositTxID
 			if appliedLockState == locked.StateDeposited {
 				otherLockTxID = lockIDs.BondTxID
 			}
 
-			ownerAmounts, ok := insAmounts[*lockedOwnerID.ownersID]
-			if !ok {
-				ownerAmounts = OwnerAmounts{
-					amounts: make(map[ids.ID]lockedAndRemainedAmounts),
-					owners:  *lockedOwnerID.owners,
+			if amountToLock > 0 {
+				// amounts map that will be owned by locked owner (either original utxo owner or to-owner)
+				ownerLockedAmounts, ownerAmountsStoredInMap := insAmounts[*toOwner.id]
+				if !ownerAmountsStoredInMap {
+					ownerLockedAmounts = OwnerAmounts{
+						amounts:    make(map[ids.ID]lockedAndRemainedAmounts),
+						secpOwners: toOwner.secpOwners,
+					}
+				}
+
+				// amounts that will be owned by locked owner (either original utxo owner or to-owner)
+				lockedAmounts := ownerLockedAmounts.amounts[otherLockTxID]
+
+				// adding locked amounts to the locked owner
+				lockedAmounts.lockedOrTransferred, err = math.Add64(lockedAmounts.lockedOrTransferred, amountToLock)
+				if err != nil {
+					err = fmt.Errorf("failed to sum locked amount (ownerID: %s, lockTx: %s): %w",
+						toOwner.id, otherLockTxID, err)
+					return nil, nil, nil, nil, err
+				}
+
+				// updating locked owner amounts in maps
+				ownerLockedAmounts.amounts[otherLockTxID] = lockedAmounts
+				if !ownerAmountsStoredInMap {
+					insAmounts[*toOwner.id] = ownerLockedAmounts
 				}
 			}
 
-			amounts := ownerAmounts.amounts[otherLockTxID]
-			newAmount, err := math.Add64(amounts.locked, amountToLock)
-			if err != nil {
-				return nil, nil, nil, nil, err
-			}
-
-			amounts.locked = newAmount
-			ownerAmounts.amounts[otherLockTxID] = amounts
-			if !ok {
-				insAmounts[*lockedOwnerID.ownersID] = ownerAmounts
-			}
-
-			ownerAmounts, ok = insAmounts[*remainingOwnerID.ownersID]
-			if !ok {
-				ownerAmounts = OwnerAmounts{
-					amounts: make(map[ids.ID]lockedAndRemainedAmounts),
-					owners:  *remainingOwnerID.owners,
+			if remainingValue > 0 {
+				// amounts map that will be owned by change owner (either original utxo owner or change-owner)
+				ownerRemainedAmounts, ownerAmountsStoredInMap := insAmounts[*remainingOwner.id]
+				if !ownerAmountsStoredInMap {
+					ownerRemainedAmounts = OwnerAmounts{
+						amounts:    make(map[ids.ID]lockedAndRemainedAmounts),
+						secpOwners: remainingOwner.secpOwners,
+					}
 				}
-			}
 
-			amounts = ownerAmounts.amounts[otherLockTxID]
-			newAmount, err = math.Add64(amounts.remained, remainingValue)
-			if err != nil {
-				return nil, nil, nil, nil, err
-			}
-			amounts.remained = newAmount
+				// amounts that will be owned by change owner (either original utxo owner or change-owner)
+				remainedAmounts := ownerRemainedAmounts.amounts[otherLockTxID]
 
-			ownerAmounts.amounts[otherLockTxID] = amounts
-			if !ok {
-				insAmounts[*remainingOwnerID.ownersID] = ownerAmounts
+				// adding remained amounts to the change owner
+				remainedAmounts.remained, err = math.Add64(remainedAmounts.remained, remainingValue)
+				if err != nil {
+					err = fmt.Errorf("failed to sum remained amount (ownerID: %s, lockTx: %s): %w",
+						toOwner.id, otherLockTxID, err)
+					return nil, nil, nil, nil, err
+				}
+
+				// updating remained amounts in maps
+				ownerRemainedAmounts.amounts[otherLockTxID] = remainedAmounts
+				if !ownerAmountsStoredInMap {
+					insAmounts[*remainingOwner.id] = ownerRemainedAmounts
+				}
 			}
 		}
 	}
 
-	for _, ownerAmounts := range insAmounts {
-		addOut := func(amt uint64, lockIDs locked.IDs, collect bool) uint64 {
-			if amt == 0 {
-				return 0
+	for ownerID, ownerAmounts := range insAmounts {
+		produceOutputAndAppendToOuts := func(amount uint64, lockIDs locked.IDs) {
+			if amount == 0 {
+				return
+			}
+			var out avax.TransferableOut = &secp256k1fx.TransferOutput{
+				Amt:          amount,
+				OutputOwners: *ownerAmounts.secpOwners,
 			}
 			if lockIDs.IsLocked() {
-				outs = append(outs, &avax.TransferableOutput{
-					Asset: avax.Asset{ID: h.ctx.AVAXAssetID},
-					Out: &locked.Out{
-						IDs: lockIDs,
-						TransferableOut: &secp256k1fx.TransferOutput{
-							Amt:          amt,
-							OutputOwners: ownerAmounts.owners,
-						},
-					},
-				})
-			} else {
-				if collect {
-					return amt
+				out = &locked.Out{
+					IDs:             lockIDs,
+					TransferableOut: out,
 				}
-				outs = append(outs, &avax.TransferableOutput{
-					Asset: avax.Asset{ID: h.ctx.AVAXAssetID},
-					Out: &secp256k1fx.TransferOutput{
-						Amt:          amt,
-						OutputOwners: ownerAmounts.owners,
-					},
-				})
 			}
-			return 0
+			outs = append(outs, &avax.TransferableOutput{
+				Asset: avax.Asset{ID: h.ctx.AVAXAssetID},
+				Out:   out,
+			})
 		}
 
 		for otherLockTxID, amounts := range ownerAmounts.amounts {
-			lockIDs := locked.IDs{}
+			consumedLockIDs := locked.IDs{} // consumedLockIDs resemble consumed inputs lock ids
 			switch appliedLockState {
 			case locked.StateBonded:
-				lockIDs.DepositTxID = otherLockTxID
+				consumedLockIDs.DepositTxID = otherLockTxID
 			case locked.StateDeposited:
-				lockIDs.BondTxID = otherLockTxID
+				consumedLockIDs.BondTxID = otherLockTxID
 			}
 
-			// If out is unlocked no UTXO is written instead the amount is returned.
-			// We apply the unlocked amount in the remaining step to compact UTXOs
-			unlockAmount := addOut(amounts.locked, lockIDs.Lock(appliedLockState), true)
-			if unlockAmount, err = math.Add64(unlockAmount, amounts.remained); err != nil {
-				return nil, nil, nil, nil, err
+			newLockIDs := consumedLockIDs.Lock(appliedLockState)
+
+			if !newLockIDs.IsLocked() {
+				amounts.remained, err = math.Add64(amounts.remained, amounts.lockedOrTransferred)
+				if err != nil {
+					err = fmt.Errorf("failed to sum unlocked amount (ownerID: %s, lockTx: %s): %w",
+						ownerID, otherLockTxID, err)
+					return nil, nil, nil, nil, err
+				}
+				amounts.lockedOrTransferred = 0
 			}
-			addOut(unlockAmount, lockIDs, false)
+
+			produceOutputAndAppendToOuts(amounts.lockedOrTransferred, newLockIDs)
+			produceOutputAndAppendToOuts(amounts.remained, consumedLockIDs)
 		}
 	}
 
