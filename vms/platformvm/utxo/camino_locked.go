@@ -266,7 +266,7 @@ func (h *handler) Lock(
 	}
 
 	changeOwner := Owner{}
-	if err := setOwner(to, &changeOwner, errNestedMultisigChangeOwner); err != nil {
+	if err := setOwner(change, &changeOwner, errNestedMultisigChangeOwner); err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to set change owner: %w", err)
 	}
 
