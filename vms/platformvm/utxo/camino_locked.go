@@ -241,6 +241,9 @@ func (h *handler) Lock(
 	}
 
 	setOwner := func(secpOwner *secp256k1fx.OutputOwners, owner *Owner, errNested error) error {
+		if secpOwner == nil {
+			return nil
+		}
 		containsMsig, err := h.fx.IsOwnerContainsMultisig(secpOwner, utxoDB)
 		switch {
 		case err != nil:
