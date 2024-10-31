@@ -97,19 +97,19 @@ func (mr *MockFxMockRecorder) CreateOutput(arg0, arg1 interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOutput", reflect.TypeOf((*MockFx)(nil).CreateOutput), arg0, arg1)
 }
 
-// IsOwnerContainsMultisig mocks base method.
-func (m *MockFx) IsOwnerContainsMultisig(arg0, arg1 interface{}) (bool, error) {
+// OwnerContainsMultisig mocks base method.
+func (m *MockFx) OwnerContainsMultisig(arg0, arg1 interface{}) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsOwnerContainsMultisig", arg0, arg1)
+	ret := m.ctrl.Call(m, "OwnerContainsMultisig", arg0, arg1)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// IsOwnerContainsMultisig indicates an expected call of IsOwnerContainsMultisig.
-func (mr *MockFxMockRecorder) IsOwnerContainsMultisig(arg0, arg1 interface{}) *gomock.Call {
+// OwnerContainsMultisig indicates an expected call of OwnerContainsMultisig.
+func (mr *MockFxMockRecorder) OwnerContainsMultisig(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsOwnerContainsMultisig", reflect.TypeOf((*MockFx)(nil).IsOwnerContainsMultisig), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OwnerContainsMultisig", reflect.TypeOf((*MockFx)(nil).OwnerContainsMultisig), arg0, arg1)
 }
 
 // Initialize mocks base method.
@@ -167,6 +167,20 @@ func (m *MockFx) VerifyMultisigOwner(arg0, arg1 interface{}) error {
 func (mr *MockFxMockRecorder) VerifyMultisigOwner(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyMultisigOwner", reflect.TypeOf((*MockFx)(nil).VerifyMultisigOwner), arg0, arg1)
+}
+
+// VerifyMultisigOutputOwner mocks base method.
+func (m *MockFx) VerifyMultisigOutputOwner(arg0, arg1 interface{}) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "VerifyMultisigOutputOwner", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// VerifyMultisigOutputOwner indicates an expected call of VerifyMultisigOutputOwner.
+func (mr *MockFxMockRecorder) VerifyMultisigOutputOwner(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyMultisigOutputOwner", reflect.TypeOf((*MockFx)(nil).VerifyMultisigOutputOwner), arg0, arg1)
 }
 
 // VerifyMultisigPermission mocks base method.

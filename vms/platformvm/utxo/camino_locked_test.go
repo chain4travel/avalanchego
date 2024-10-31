@@ -178,8 +178,8 @@ func TestLock(t *testing.T) {
 		state := state.NewMockState(ctrl)
 		keychain := secp256k1fx.NewKeychain(keys...)
 		utxoOwnerAddresses := keychain.Addresses().List()
-		expect.StateHasNestedMultisig(t, state, to, nil, nil)
-		expect.StateHasNestedMultisig(t, state, change, nil, nil)
+		expect.StateVerifyMultisigOwner(t, state, to, nil, nil, true)
+		expect.StateVerifyMultisigOwner(t, state, change, nil, nil, true)
 		expect.StateGetAllUTXOs(t, state, utxoOwnerAddresses, [][]*avax.UTXO{utxos})
 		for _, utxo := range utxos {
 			expect.StateSpendMultisig(t, state, utxo)
@@ -199,8 +199,8 @@ func TestLock(t *testing.T) {
 		state := state.NewMockState(ctrl)
 		keychain := secp256k1fx.NewKeychain(keys...)
 		utxoOwnerAddresses := keychain.Addresses().List()
-		expect.StateHasNestedMultisig(t, state, to, nil, nil)
-		expect.StateHasNestedMultisig(t, state, change, nil, nil)
+		expect.StateVerifyMultisigOwner(t, state, to, nil, nil, true)
+		expect.StateVerifyMultisigOwner(t, state, change, nil, nil, true)
 		expect.StateGetAllUTXOs(t, state, utxoOwnerAddresses, [][]*avax.UTXO{utxos})
 		return state
 	}
@@ -255,15 +255,43 @@ func TestLock(t *testing.T) {
 			) *state.MockState {
 				t.Helper()
 				state := state.NewMockState(ctrl)
-				expect.StateHasNestedMultisig(
+				expect.StateVerifyMultisigOwner(
 					t, state, change,
-					[]ids.ShortID{change.Addrs[0]},
-					[]*multisig.AliasWithNonce{{Alias: multisig.Alias{Owners: &secp256k1fx.OutputOwners{}}}},
+					[]ids.ShortID{change.Addrs[0], {100}},
+					[]*multisig.AliasWithNonce{
+						{Alias: multisig.Alias{
+							Owners: &secp256k1fx.OutputOwners{Addrs: []ids.ShortID{{100}}},
+						}},
+						{Alias: multisig.Alias{Owners: &secp256k1fx.OutputOwners{}}},
+					},
+					false,
 				)
 				return state
 			},
 			change:      &changeOwner,
-			expectedErr: errNestedMultisigChangeOwner,
+			expectedErr: errCompositeMultisigChangeOwner,
+		},
+		"Composite multisig change owner": {
+			state: func(
+				t *testing.T,
+				ctrl *gomock.Controller,
+				_ []*avax.UTXO,
+				_ []*secp256k1.PrivateKey,
+				_ *secp256k1fx.OutputOwners,
+				change *secp256k1fx.OutputOwners,
+			) *state.MockState {
+				t.Helper()
+				state := state.NewMockState(ctrl)
+				expect.StateVerifyMultisigOwner(
+					t, state, change,
+					[]ids.ShortID{{100}},
+					[]*multisig.AliasWithNonce{{Alias: multisig.Alias{Owners: &secp256k1fx.OutputOwners{}}}},
+					false,
+				)
+				return state
+			},
+			change:      &secp256k1fx.OutputOwners{Addrs: []ids.ShortID{{100}, {101}}},
+			expectedErr: errCompositeMultisigChangeOwner,
 		},
 		"Nested multisig to-owner": {
 			state: func(
@@ -276,15 +304,43 @@ func TestLock(t *testing.T) {
 			) *state.MockState {
 				t.Helper()
 				state := state.NewMockState(ctrl)
-				expect.StateHasNestedMultisig(
+				expect.StateVerifyMultisigOwner(
 					t, state, to,
-					[]ids.ShortID{to.Addrs[0]},
-					[]*multisig.AliasWithNonce{{Alias: multisig.Alias{Owners: &secp256k1fx.OutputOwners{}}}},
+					[]ids.ShortID{to.Addrs[0], {100}},
+					[]*multisig.AliasWithNonce{
+						{Alias: multisig.Alias{
+							Owners: &secp256k1fx.OutputOwners{Addrs: []ids.ShortID{{100}}},
+						}},
+						{Alias: multisig.Alias{Owners: &secp256k1fx.OutputOwners{}}},
+					},
+					false,
 				)
 				return state
 			},
 			to:          &recipientOwner,
-			expectedErr: errNestedMultisigToOwner,
+			expectedErr: errCompositeMultisigToOwner,
+		},
+		"Composite multisig to-owner": {
+			state: func(
+				t *testing.T,
+				ctrl *gomock.Controller,
+				_ []*avax.UTXO,
+				_ []*secp256k1.PrivateKey,
+				to *secp256k1fx.OutputOwners,
+				_ *secp256k1fx.OutputOwners,
+			) *state.MockState {
+				t.Helper()
+				state := state.NewMockState(ctrl)
+				expect.StateVerifyMultisigOwner(
+					t, state, to,
+					[]ids.ShortID{{100}},
+					[]*multisig.AliasWithNonce{{Alias: multisig.Alias{Owners: &secp256k1fx.OutputOwners{}}}},
+					false,
+				)
+				return state
+			},
+			to:          &secp256k1fx.OutputOwners{Addrs: []ids.ShortID{{100}, {101}}},
+			expectedErr: errCompositeMultisigToOwner,
 		},
 		"Bond unlocked utxo: not enough balance": {
 			state:              defaultState,
@@ -344,7 +400,7 @@ func TestLock(t *testing.T) {
 				keychain := secp256k1fx.NewKeychain(keys...)
 				utxoOwnerAddresses := keychain.Addresses().List()
 				expect.StateGetAllUTXOs(t, state, utxoOwnerAddresses, [][]*avax.UTXO{utxos})
-				expect.StateHasNestedMultisig(t, state, toOwner, nil, nil)
+				expect.StateVerifyMultisigOwner(t, state, toOwner, nil, nil, true)
 				expect.StateSpendMultisig(t, state, utxos[0])
 				return state
 			},

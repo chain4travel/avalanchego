@@ -46,21 +46,6 @@ func GetMultisigAliases(t *testing.T, s *state.MockDiff, addrs []ids.ShortID, al
 	}
 }
 
-func StateGetMultisigAliases(t *testing.T, s *state.MockState, addrs []ids.ShortID, aliases []*multisig.AliasWithNonce) {
-	t.Helper()
-	for i := range addrs {
-		var alias *multisig.AliasWithNonce
-		if i < len(aliases) {
-			alias = aliases[i]
-		}
-		if alias == nil {
-			s.EXPECT().GetMultisigAlias(addrs[i]).Return(nil, database.ErrNotFound)
-		} else {
-			s.EXPECT().GetMultisigAlias(addrs[i]).Return(alias, nil)
-		}
-	}
-}
-
 func VerifyLock(
 	t *testing.T,
 	s *state.MockDiff,
@@ -193,33 +178,43 @@ func StateSpendMultisig(t *testing.T, s *state.MockState, utxo *avax.UTXO) {
 	}
 }
 
-// Doesn't support multisig alias yet
-func StateHasNestedMultisig(
+func StateVerifyMultisigOwner(
 	t *testing.T,
 	s *state.MockState,
 	owner *secp256k1fx.OutputOwners,
 	msigAliasAddresses []ids.ShortID,
 	msigAliases []*multisig.AliasWithNonce,
+	collectAddresses bool,
 ) {
 	t.Helper()
 	if owner == nil {
 		return
 	}
+
 	aliases := make(map[ids.ShortID]*multisig.AliasWithNonce)
 	for i := range msigAliasAddresses {
 		aliases[msigAliasAddresses[i]] = msigAliases[i]
 	}
+
 	addresses := set.Set[ids.ShortID]{}
-	for _, addr := range owner.Addrs {
-		addresses.Add(addr)
-	}
-	for _, alias := range msigAliases {
-		owner, ok := alias.Owners.(*secp256k1fx.OutputOwners)
-		require.True(t, ok)
+
+	if collectAddresses {
 		for _, addr := range owner.Addrs {
 			addresses.Add(addr)
 		}
+		for _, alias := range msigAliases {
+			owner, ok := alias.Owners.(*secp256k1fx.OutputOwners)
+			require.True(t, ok)
+			for _, addr := range owner.Addrs {
+				addresses.Add(addr)
+			}
+		}
 	}
+
+	for _, msigAliasAddress := range msigAliasAddresses {
+		addresses.Add(msigAliasAddress)
+	}
+
 	for addr := range addresses {
 		if _, ok := aliases[addr]; ok {
 			s.EXPECT().GetMultisigAlias(addr).Return(aliases[addr], nil)

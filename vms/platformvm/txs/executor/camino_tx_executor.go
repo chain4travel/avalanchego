@@ -247,11 +247,7 @@ func (e *CaminoStandardTxExecutor) AddValidatorTx(tx *txs.AddValidatorTx) error 
 			return errWrongOwnerType
 		}
 
-		if err := e.Fx.VerifyMultisigOwner(
-			&secp256k1fx.TransferOutput{
-				OutputOwners: *rewardOwner,
-			}, e.State,
-		); err != nil {
+		if err := e.Fx.VerifyMultisigOwner(rewardOwner, e.State); err != nil {
 			return err
 		}
 
@@ -741,11 +737,7 @@ func (e *CaminoStandardTxExecutor) DepositTx(tx *txs.DepositTx) error {
 		return errWrongOwnerType
 	}
 
-	if err := e.Fx.VerifyMultisigOwner(
-		&secp256k1fx.TransferOutput{
-			OutputOwners: *rewardOwner,
-		}, e.State,
-	); err != nil {
+	if err := e.Fx.VerifyMultisigOwner(rewardOwner, e.State); err != nil {
 		return err
 	}
 
@@ -1548,7 +1540,7 @@ func (e *CaminoStandardTxExecutor) MultisigAliasTx(tx *txs.MultisigAliasTx) erro
 		}
 
 		// verify that alias isn't nesting another alias
-		containsMsig, err := e.Fx.IsOwnerContainsMultisig(tx.MultisigAlias.Owners, e.State)
+		containsMsig, err := e.Fx.OwnerContainsMultisig(tx.MultisigAlias.Owners, e.State)
 		switch {
 		case err != nil:
 			return err
