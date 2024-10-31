@@ -283,7 +283,7 @@ func TestLock(t *testing.T) {
 				)
 				return state
 			},
-			to:          &recipientOwner, // TODO@ nested msig
+			to:          &recipientOwner,
 			expectedErr: errNestedMultisigToOwner,
 		},
 		"Bond unlocked utxo: not enough balance": {
