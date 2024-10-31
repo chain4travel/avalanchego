@@ -33,5 +33,5 @@ type CaminoFx interface {
 	CollectMultisigAliases(ownerIntf, msigIntf interface{}) ([]interface{}, error)
 
 	// Checks if [ownerIntf] contains msig alias
-	HasNestedMultisig(ownerIntf interface{}, msigIntf interface{}) (bool, error)
+	IsOwnerContainsMultisig(ownerIntf interface{}, msigIntf interface{}) (bool, error)
 }

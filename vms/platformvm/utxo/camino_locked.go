@@ -240,46 +240,31 @@ func (h *handler) Lock(
 		id         *ids.ID
 	}
 
-	newOwner := Owner{}
-	if to != nil {
-		isNestedMsig, err := h.fx.HasNestedMultisig(to, utxoDB)
+	setOwner := func(secpOwner *secp256k1fx.OutputOwners, owner *Owner, errNested error) error {
+		containsMsig, err := h.fx.IsOwnerContainsMultisig(secpOwner, utxoDB)
 		switch {
 		case err != nil:
-			err = fmt.Errorf("failed to check if to-owner is nested multisig owner: %w", err)
-		case isNestedMsig:
-			err = errNestedMultisigToOwner
-		}
-		if err != nil {
-			return nil, nil, nil, nil, err
+			return fmt.Errorf("failed to check if owner contains nested multisig owner: %w", err)
+		case containsMsig:
+			return errNested
 		}
 
-		id, err := txs.GetOwnerID(to)
+		id, err := txs.GetOwnerID(secpOwner)
 		if err != nil {
-			err = fmt.Errorf("failed to get ownerID for to-owner: %w", err)
-			return nil, nil, nil, nil, err
+			return fmt.Errorf("failed to get ownerID: %w", err)
 		}
-		newOwner = Owner{to, &id}
+		*owner = Owner{secpOwner, &id}
+		return nil
+	}
+
+	newOwner := Owner{}
+	if err := setOwner(to, &newOwner, errNestedMultisigToOwner); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to set to-owner: %w", err)
 	}
 
 	changeOwner := Owner{}
-	if change != nil {
-		isNestedMsig, err := h.fx.HasNestedMultisig(change, utxoDB)
-		switch {
-		case err != nil:
-			err = fmt.Errorf("failed to check if change owner is nested multisig owner: %w", err)
-		case isNestedMsig:
-			err = errNestedMultisigChangeOwner
-		}
-		if err != nil {
-			return nil, nil, nil, nil, err
-		}
-
-		id, err := txs.GetOwnerID(change)
-		if err != nil {
-			err = fmt.Errorf("failed to get ownerID for change owner': %w", err)
-			return nil, nil, nil, nil, err
-		}
-		changeOwner = Owner{change, &id}
+	if err := setOwner(to, &changeOwner, errNestedMultisigChangeOwner); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to set change owner: %w", err)
 	}
 
 	addrs, signer := secp256k1fx.ExtractFromAndSigners(keys)
