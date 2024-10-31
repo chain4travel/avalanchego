@@ -47,6 +47,7 @@ var (
 	errCantSpend                 = errors.New("can't spend utxo with given credential and input")
 	errNestedMultisigChangeOwner = errors.New("change owner can't be nested multisig owner")
 	errNestedMultisigToOwner     = errors.New("to-owner can't be nested multisig owner")
+	errNewBondOwner              = errors.New("can't create bond for new owner")
 )
 
 // Creates UTXOs from [outs] and adds them to the UTXO set.
@@ -230,54 +231,18 @@ func (h *handler) Lock(
 		return nil, nil, nil, nil, errInvalidTargetLockState
 	}
 
-	addrs, signer := secp256k1fx.ExtractFromAndSigners(keys)
-
-	utxos, err := avax.GetAllUTXOs(utxoDB, addrs) // The UTXOs controlled by [keys]
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("couldn't get UTXOs: %w", err)
+	if appliedLockState == locked.StateBonded && to != nil {
+		return nil, nil, nil, nil, errNewBondOwner
 	}
 
-	sortUTXOs(utxos, h.ctx.AVAXAssetID, appliedLockState)
-
-	kc := secp256k1fx.NewKeychain(signer...) // Keychain consumes UTXOs and creates new ones
-
-	// Minimum time this transaction will be issued at
-	now := asOf
-	if now == 0 {
-		now = uint64(h.clk.Time().Unix())
-	}
-
-	ins := []*avax.TransferableInput{}
-	outs := []*avax.TransferableOutput{}
-	signers := [][]*secp256k1.PrivateKey{}
-	owners := []*secp256k1fx.OutputOwners{}
-
-	// Amount of AVAX that has been locked
-	totalAmountLocked := uint64(0)
-
-	// Amount of AVAX that has been burned
-	totalAmountBurned := uint64(0)
-
-	type lockedAndRemainedAmounts struct {
-		lockedOrTransferred uint64
-		remained            uint64
-	}
 	type Owner struct {
 		secpOwners *secp256k1fx.OutputOwners
 		id         *ids.ID
 	}
-	type OwnerAmounts struct {
-		amounts    map[ids.ID]lockedAndRemainedAmounts
-		secpOwners *secp256k1fx.OutputOwners
-	}
-	// Track the amount of transfers and their owners
-	// if appliedLockState == bond, then otherLockTxID is depositTxID and vice versa
-	// ownerID -> otherLockTxID -> AAAA
-	insAmounts := make(map[ids.ID]OwnerAmounts)
 
 	newOwner := Owner{}
-	if to != nil && appliedLockState == locked.StateUnlocked {
-		isNestedMsig, err := h.fx.IsNestedMultisig(to, utxoDB)
+	if to != nil {
+		isNestedMsig, err := h.fx.HasNestedMultisig(to, utxoDB)
 		switch {
 		case err != nil:
 			err = fmt.Errorf("failed to check if to-owner is nested multisig owner: %w", err)
@@ -298,7 +263,7 @@ func (h *handler) Lock(
 
 	changeOwner := Owner{}
 	if change != nil {
-		isNestedMsig, err := h.fx.IsNestedMultisig(change, utxoDB)
+		isNestedMsig, err := h.fx.HasNestedMultisig(change, utxoDB)
 		switch {
 		case err != nil:
 			err = fmt.Errorf("failed to check if change owner is nested multisig owner: %w", err)
@@ -316,6 +281,47 @@ func (h *handler) Lock(
 		}
 		changeOwner = Owner{change, &id}
 	}
+
+	addrs, signer := secp256k1fx.ExtractFromAndSigners(keys)
+
+	utxos, err := avax.GetAllUTXOs(utxoDB, addrs) // The UTXOs controlled by [keys]
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("couldn't get UTXOs: %w", err)
+	}
+
+	sortUTXOs(utxos, h.ctx.AVAXAssetID, appliedLockState)
+
+	kc := secp256k1fx.NewKeychain(signer...) // Keychain consumes UTXOs and creates new ones
+
+	// Minimum time this transaction will be issued at
+	now := asOf
+	if now == 0 {
+		now = uint64(h.clk.Time().Unix())
+	}
+
+	ins := []*avax.TransferableInput{}
+	outs := []*avax.TransferableOutput{}
+	signers := [][]*secp256k1.PrivateKey{}
+	owners := []*secp256k1fx.OutputOwners{} // owners of consumed utxos
+
+	// Amount of AVAX that has been locked
+	totalAmountLocked := uint64(0)
+
+	// Amount of AVAX that has been burned
+	totalAmountBurned := uint64(0)
+
+	type lockedAndRemainedAmounts struct {
+		lockedOrTransferred uint64
+		remained            uint64
+	}
+	type OwnerAmounts struct {
+		amounts    map[ids.ID]lockedAndRemainedAmounts
+		secpOwners *secp256k1fx.OutputOwners
+	}
+	// Track the amount of transfers and their owners
+	// if appliedLockState == bond, then otherLockTxID is depositTxID and vice versa
+	// ownerID -> otherLockTxID -> AAAA
+	insAmounts := make(map[ids.ID]OwnerAmounts)
 
 	for _, utxo := range utxos {
 		// If we have consumed more AVAX than we are trying to lock,

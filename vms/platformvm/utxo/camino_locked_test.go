@@ -6,7 +6,6 @@ package utxo
 import (
 	"errors"
 	"fmt"
-	"math"
 	"testing"
 	"time"
 
@@ -22,6 +21,7 @@ import (
 	"github.com/ava-labs/avalanchego/vms/platformvm/locked"
 	"github.com/ava-labs/avalanchego/vms/platformvm/state"
 	"github.com/ava-labs/avalanchego/vms/platformvm/test"
+	"github.com/ava-labs/avalanchego/vms/platformvm/test/expect"
 	"github.com/ava-labs/avalanchego/vms/platformvm/test/generate"
 	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
 	"github.com/ava-labs/avalanchego/vms/secp256k1fx"
@@ -146,135 +146,229 @@ func TestUnlockUTXOs(t *testing.T) {
 }
 
 func TestLock(t *testing.T) {
-	ctrl := gomock.NewController(t)
-
-	fx := &secp256k1fx.Fx{}
-	err := fx.InitializeVM(&secp256k1fx.TestVM{})
-	require.NoError(t, err)
-	err = fx.Bootstrapped()
-	require.NoError(t, err)
 	ctx := snow.DefaultContextTest()
 
-	cryptFactory := secp256k1.Factory{}
-	key, err := cryptFactory.NewPrivateKey()
-	require.NoError(t, err)
-	address := key.Address()
-	outputOwners := secp256k1fx.OutputOwners{
+	utxoOwner := secp256k1fx.OutputOwners{
 		Locktime:  0,
 		Threshold: 1,
-		Addrs:     []ids.ShortID{address},
+		Addrs:     []ids.ShortID{test.Keys[0].Address()},
+	}
+	changeOwner := secp256k1fx.OutputOwners{
+		Locktime:  0,
+		Threshold: 1,
+		Addrs:     []ids.ShortID{{1}},
+	}
+	recipientOwner := secp256k1fx.OutputOwners{
+		Locktime:  0,
+		Threshold: 1,
+		Addrs:     []ids.ShortID{{2}},
 	}
 
-	testKeys := secp256k1.TestKeys()
-	changeOwners := secp256k1fx.OutputOwners{
-		Locktime:  0,
-		Threshold: 1,
-		Addrs:     []ids.ShortID{testKeys[0].Address()},
-	}
-	recipientOwners := secp256k1fx.OutputOwners{
-		Locktime:  0,
-		Threshold: 1,
-		Addrs:     []ids.ShortID{testKeys[1].Address()},
+	existingTxID := ids.ID{1, 1}
+
+	defaultState := func(
+		t *testing.T,
+		ctrl *gomock.Controller,
+		utxos []*avax.UTXO,
+		keys []*secp256k1.PrivateKey,
+		to *secp256k1fx.OutputOwners,
+		change *secp256k1fx.OutputOwners,
+	) *state.MockState {
+		t.Helper()
+		state := state.NewMockState(ctrl)
+		keychain := secp256k1fx.NewKeychain(keys...)
+		utxoOwnerAddresses := keychain.Addresses().List()
+		expect.StateHasNestedMultisig(t, state, to, nil, nil)
+		expect.StateHasNestedMultisig(t, state, change, nil, nil)
+		expect.StateGetAllUTXOs(t, state, utxoOwnerAddresses, [][]*avax.UTXO{utxos})
+		for _, utxo := range utxos {
+			expect.StateSpendMultisig(t, state, utxo)
+		}
+		return state
 	}
 
-	existingTxID := ids.GenerateTestID()
+	defaultStateWithEarlyErr := func(
+		t *testing.T,
+		ctrl *gomock.Controller,
+		utxos []*avax.UTXO,
+		keys []*secp256k1.PrivateKey,
+		to *secp256k1fx.OutputOwners,
+		change *secp256k1fx.OutputOwners,
+	) *state.MockState {
+		t.Helper()
+		state := state.NewMockState(ctrl)
+		keychain := secp256k1fx.NewKeychain(keys...)
+		utxoOwnerAddresses := keychain.Addresses().List()
+		expect.StateHasNestedMultisig(t, state, to, nil, nil)
+		expect.StateHasNestedMultisig(t, state, change, nil, nil)
+		expect.StateGetAllUTXOs(t, state, utxoOwnerAddresses, [][]*avax.UTXO{utxos})
+		return state
+	}
 
 	tests := map[string]struct {
+		state func(
+			t *testing.T,
+			ctrl *gomock.Controller,
+			utxos []*avax.UTXO,
+			keys []*secp256k1.PrivateKey,
+			to *secp256k1fx.OutputOwners,
+			change *secp256k1fx.OutputOwners,
+		) *state.MockState
+
 		utxos              []*avax.UTXO
 		totalAmountToSpend uint64
 		totalAmountToBurn  uint64
 		appliedLockState   locked.State
 		to                 *secp256k1fx.OutputOwners
 		change             *secp256k1fx.OutputOwners
+		keys               []*secp256k1.PrivateKey
 		expectedIns        func([]*avax.UTXO) []*avax.TransferableInput
 		expectedOuts       []*avax.TransferableOutput
-		expectedOwners     [][]*secp256k1.PrivateKey
+		expectedOwners     []*secp256k1fx.OutputOwners
+		expectedSigners    [][]*secp256k1.PrivateKey
 		expectedErr        error
 	}{
-		"Nested multisig change owner": {
-			totalAmountToBurn: 1,
-			appliedLockState:  locked.StateUnlocked,
-			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 1, outputOwners, ids.Empty, ids.Empty, true),
+		"New bond owner": {
+			state: func(
+				t *testing.T,
+				ctrl *gomock.Controller,
+				_ []*avax.UTXO,
+				_ []*secp256k1.PrivateKey,
+				_ *secp256k1fx.OutputOwners,
+				_ *secp256k1fx.OutputOwners,
+			) *state.MockState {
+				t.Helper()
+				return state.NewMockState(ctrl)
 			},
-			change:      &changeOwners, // TODO@ nested msig
+			appliedLockState: locked.StateBonded,
+			to:               &recipientOwner,
+			expectedErr:      errNewBondOwner,
+		},
+		"Nested multisig change owner": {
+			state: func(
+				t *testing.T,
+				ctrl *gomock.Controller,
+				_ []*avax.UTXO,
+				_ []*secp256k1.PrivateKey,
+				_ *secp256k1fx.OutputOwners,
+				change *secp256k1fx.OutputOwners,
+			) *state.MockState {
+				t.Helper()
+				state := state.NewMockState(ctrl)
+				expect.StateHasNestedMultisig(
+					t, state, change,
+					[]ids.ShortID{change.Addrs[0]},
+					[]*multisig.AliasWithNonce{{Alias: multisig.Alias{Owners: &secp256k1fx.OutputOwners{}}}},
+				)
+				return state
+			},
+			change:      &changeOwner,
 			expectedErr: errNestedMultisigChangeOwner,
 		},
 		"Nested multisig to-owner": {
-			totalAmountToBurn: 1,
-			appliedLockState:  locked.StateUnlocked,
-			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 1, outputOwners, ids.Empty, ids.Empty, true),
+			state: func(
+				t *testing.T,
+				ctrl *gomock.Controller,
+				_ []*avax.UTXO,
+				_ []*secp256k1.PrivateKey,
+				to *secp256k1fx.OutputOwners,
+				_ *secp256k1fx.OutputOwners,
+			) *state.MockState {
+				t.Helper()
+				state := state.NewMockState(ctrl)
+				expect.StateHasNestedMultisig(
+					t, state, to,
+					[]ids.ShortID{to.Addrs[0]},
+					[]*multisig.AliasWithNonce{{Alias: multisig.Alias{Owners: &secp256k1fx.OutputOwners{}}}},
+				)
+				return state
 			},
-			to:          &recipientOwners, // TODO@ nested msig
+			to:          &recipientOwner, // TODO@ nested msig
 			expectedErr: errNestedMultisigToOwner,
 		},
 		"Bond unlocked utxo: not enough balance": {
+			state:              defaultState,
 			totalAmountToSpend: 9,
 			totalAmountToBurn:  1,
 			appliedLockState:   locked.StateBonded,
+			keys:               []*secp256k1.PrivateKey{test.Keys[0]},
 			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, utxoOwner, ids.Empty, ids.Empty, true),
 			},
 			expectedErr: errInsufficientBalance,
 		},
 		"Deposit unlocked utxo: not enough balance": {
+			state:              defaultState,
 			totalAmountToSpend: 9,
 			totalAmountToBurn:  1,
 			appliedLockState:   locked.StateDeposited,
+			keys:               []*secp256k1.PrivateKey{test.Keys[0]},
 			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, utxoOwner, ids.Empty, ids.Empty, true),
 			},
 			expectedErr: errInsufficientBalance,
 		},
 		"Bond bonded utxo": {
+			state:              defaultStateWithEarlyErr,
 			totalAmountToSpend: 9,
 			totalAmountToBurn:  1,
 			appliedLockState:   locked.StateBonded,
+			keys:               []*secp256k1.PrivateKey{test.Keys[0]},
 			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 10, outputOwners, ids.Empty, existingTxID, true),
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 10, utxoOwner, ids.Empty, existingTxID, true),
 			},
 			expectedErr: errInsufficientBalance,
 		},
 		"Deposit deposited utxo": {
+			state:              defaultStateWithEarlyErr,
 			totalAmountToSpend: 9,
 			totalAmountToBurn:  1,
 			appliedLockState:   locked.StateDeposited,
+			keys:               []*secp256k1.PrivateKey{test.Keys[0]},
 			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 1, outputOwners, existingTxID, ids.Empty, true),
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 1, utxoOwner, existingTxID, ids.Empty, true),
 			},
 			expectedErr: errInsufficientBalance,
 		},
-		"Deposit bonded for new owner": {
+		"Deposit bonded for new owner: not enough balance": {
+			state: func(
+				t *testing.T,
+				ctrl *gomock.Controller,
+				utxos []*avax.UTXO,
+				keys []*secp256k1.PrivateKey,
+				toOwner *secp256k1fx.OutputOwners,
+				_ *secp256k1fx.OutputOwners,
+			) *state.MockState {
+				t.Helper()
+				state := state.NewMockState(ctrl)
+				keychain := secp256k1fx.NewKeychain(keys...)
+				utxoOwnerAddresses := keychain.Addresses().List()
+				expect.StateGetAllUTXOs(t, state, utxoOwnerAddresses, [][]*avax.UTXO{utxos})
+				expect.StateHasNestedMultisig(t, state, toOwner, nil, nil)
+				expect.StateSpendMultisig(t, state, utxos[0])
+				return state
+			},
 			totalAmountToSpend: 2,
 			totalAmountToBurn:  1,
 			appliedLockState:   locked.StateDeposited,
-			to:                 &recipientOwners,
-			change:             &changeOwners,
+			to:                 &recipientOwner,
+			keys:               []*secp256k1.PrivateKey{test.Keys[0]},
 			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 2, outputOwners, ids.Empty, ids.Empty, true),
-				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, existingTxID, true),
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 2, utxoOwner, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 5, utxoOwner, ids.Empty, existingTxID, true),
 			},
-			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
-				return []*avax.TransferableInput{
-					generate.InFromUTXO(t, utxos[0], []uint32{0}, false),
-					generate.InFromUTXO(t, utxos[1], []uint32{0}, false),
-				}
-			},
-			expectedOuts: []*avax.TransferableOutput{
-				generate.Out(ctx.AVAXAssetID, 2, recipientOwners, locked.ThisTxID, existingTxID),
-				generate.Out(ctx.AVAXAssetID, 3, outputOwners, ids.Empty, existingTxID),
-				generate.Out(ctx.AVAXAssetID, 1, changeOwners, ids.Empty, ids.Empty),
-			},
+			expectedErr: errInsufficientBalance,
 		},
 		"OK: burn, full transfer with change to other address": {
+			state:              defaultState,
 			totalAmountToSpend: 1,
 			totalAmountToBurn:  1,
 			appliedLockState:   locked.StateUnlocked,
-			change:             &changeOwners,
-			to:                 &recipientOwners,
+			change:             &changeOwner,
+			to:                 &recipientOwner,
+			keys:               []*secp256k1.PrivateKey{test.Keys[0]},
 			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, utxoOwner, ids.Empty, ids.Empty, true),
 			},
 			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
 				return []*avax.TransferableInput{
@@ -282,16 +376,24 @@ func TestLock(t *testing.T) {
 				}
 			},
 			expectedOuts: []*avax.TransferableOutput{
-				generate.Out(ctx.AVAXAssetID, 1, recipientOwners, ids.Empty, ids.Empty),
-				generate.Out(ctx.AVAXAssetID, 3, changeOwners, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 1, recipientOwner, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 3, changeOwner, ids.Empty, ids.Empty),
+			},
+			expectedSigners: [][]*secp256k1.PrivateKey{
+				{test.Keys[0]},
+			},
+			expectedOwners: []*secp256k1fx.OutputOwners{
+				&utxoOwner,
 			},
 		},
 		"OK: burn, self transfer": {
+			state:              defaultState,
 			totalAmountToSpend: 1,
 			totalAmountToBurn:  1,
 			appliedLockState:   locked.StateUnlocked,
+			keys:               []*secp256k1.PrivateKey{test.Keys[0]},
 			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, utxoOwner, ids.Empty, ids.Empty, true),
 			},
 			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
 				return []*avax.TransferableInput{
@@ -299,16 +401,24 @@ func TestLock(t *testing.T) {
 				}
 			},
 			expectedOuts: []*avax.TransferableOutput{
-				generate.Out(ctx.AVAXAssetID, 4, outputOwners, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 4, utxoOwner, ids.Empty, ids.Empty),
+			},
+			expectedSigners: [][]*secp256k1.PrivateKey{
+				{test.Keys[0]},
+			},
+			expectedOwners: []*secp256k1fx.OutputOwners{
+				&utxoOwner,
 			},
 		},
 		"OK: burn, self transfer with change to other address": {
+			state:              defaultState,
 			totalAmountToSpend: 1,
 			totalAmountToBurn:  1,
 			appliedLockState:   locked.StateUnlocked,
-			change:             &changeOwners,
+			change:             &changeOwner,
+			keys:               []*secp256k1.PrivateKey{test.Keys[0]},
 			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, utxoOwner, ids.Empty, ids.Empty, true),
 			},
 			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
 				return []*avax.TransferableInput{
@@ -316,17 +426,25 @@ func TestLock(t *testing.T) {
 				}
 			},
 			expectedOuts: []*avax.TransferableOutput{
-				generate.Out(ctx.AVAXAssetID, 1, outputOwners, ids.Empty, ids.Empty),
-				generate.Out(ctx.AVAXAssetID, 3, changeOwners, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 1, utxoOwner, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 3, changeOwner, ids.Empty, ids.Empty),
+			},
+			expectedSigners: [][]*secp256k1.PrivateKey{
+				{test.Keys[0]},
+			},
+			expectedOwners: []*secp256k1fx.OutputOwners{
+				&utxoOwner,
 			},
 		},
 		"OK: bond unlocked utxos": {
+			state:              defaultState,
 			totalAmountToSpend: 9,
 			totalAmountToBurn:  1,
 			appliedLockState:   locked.StateBonded,
+			keys:               []*secp256k1.PrivateKey{test.Keys[0]},
 			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
-				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 10, outputOwners, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, utxoOwner, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 10, utxoOwner, ids.Empty, ids.Empty, true),
 			},
 			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
 				return []*avax.TransferableInput{
@@ -335,17 +453,25 @@ func TestLock(t *testing.T) {
 				}
 			},
 			expectedOuts: []*avax.TransferableOutput{
-				generate.Out(ctx.AVAXAssetID, 9, outputOwners, ids.Empty, locked.ThisTxID),
-				generate.Out(ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 5, utxoOwner, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 9, utxoOwner, ids.Empty, locked.ThisTxID),
+			},
+			expectedSigners: [][]*secp256k1.PrivateKey{
+				{test.Keys[0]}, {test.Keys[0]},
+			},
+			expectedOwners: []*secp256k1fx.OutputOwners{
+				&utxoOwner, &utxoOwner,
 			},
 		},
 		"OK: bond deposited utxos": {
+			state:              defaultState,
 			totalAmountToSpend: 9,
 			totalAmountToBurn:  1,
 			appliedLockState:   locked.StateBonded,
+			keys:               []*secp256k1.PrivateKey{test.Keys[0]},
 			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
-				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 10, outputOwners, existingTxID, ids.Empty, true),
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, utxoOwner, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 10, utxoOwner, existingTxID, ids.Empty, true),
 			},
 			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
 				return []*avax.TransferableInput{
@@ -354,18 +480,26 @@ func TestLock(t *testing.T) {
 				}
 			},
 			expectedOuts: []*avax.TransferableOutput{
-				generate.Out(ctx.AVAXAssetID, 9, outputOwners, existingTxID, locked.ThisTxID),
-				generate.Out(ctx.AVAXAssetID, 1, outputOwners, existingTxID, ids.Empty),
-				generate.Out(ctx.AVAXAssetID, 4, outputOwners, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 4, utxoOwner, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 1, utxoOwner, existingTxID, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 9, utxoOwner, existingTxID, locked.ThisTxID),
+			},
+			expectedSigners: [][]*secp256k1.PrivateKey{
+				{test.Keys[0]}, {test.Keys[0]},
+			},
+			expectedOwners: []*secp256k1fx.OutputOwners{
+				&utxoOwner, &utxoOwner,
 			},
 		},
 		"OK: depositing": {
+			state:              defaultState,
 			totalAmountToSpend: 9,
 			totalAmountToBurn:  1,
 			appliedLockState:   locked.StateDeposited,
+			keys:               []*secp256k1.PrivateKey{test.Keys[0]},
 			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
-				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 10, outputOwners, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, utxoOwner, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 10, utxoOwner, ids.Empty, ids.Empty, true),
 			},
 			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
 				return []*avax.TransferableInput{
@@ -374,17 +508,25 @@ func TestLock(t *testing.T) {
 				}
 			},
 			expectedOuts: []*avax.TransferableOutput{
-				generate.Out(ctx.AVAXAssetID, 9, outputOwners, locked.ThisTxID, ids.Empty),
-				generate.Out(ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 5, utxoOwner, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 9, utxoOwner, locked.ThisTxID, ids.Empty),
+			},
+			expectedSigners: [][]*secp256k1.PrivateKey{
+				{test.Keys[0]}, {test.Keys[0]},
+			},
+			expectedOwners: []*secp256k1fx.OutputOwners{
+				&utxoOwner, &utxoOwner,
 			},
 		},
 		"OK: depositing bonded amount": {
+			state:              defaultState,
 			totalAmountToSpend: 9,
 			totalAmountToBurn:  1,
 			appliedLockState:   locked.StateDeposited,
+			keys:               []*secp256k1.PrivateKey{test.Keys[0]},
 			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
-				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 10, outputOwners, ids.Empty, existingTxID, true),
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, utxoOwner, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{9, 9}, ctx.AVAXAssetID, 10, utxoOwner, ids.Empty, existingTxID, true),
 			},
 			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
 				return []*avax.TransferableInput{
@@ -393,19 +535,27 @@ func TestLock(t *testing.T) {
 				}
 			},
 			expectedOuts: []*avax.TransferableOutput{
-				generate.Out(ctx.AVAXAssetID, 9, outputOwners, locked.ThisTxID, existingTxID),
-				generate.Out(ctx.AVAXAssetID, 1, outputOwners, ids.Empty, existingTxID),
-				generate.Out(ctx.AVAXAssetID, 4, outputOwners, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 4, utxoOwner, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 1, utxoOwner, ids.Empty, existingTxID),
+				generate.Out(ctx.AVAXAssetID, 9, utxoOwner, locked.ThisTxID, existingTxID),
+			},
+			expectedSigners: [][]*secp256k1.PrivateKey{
+				{test.Keys[0]}, {test.Keys[0]},
+			},
+			expectedOwners: []*secp256k1fx.OutputOwners{
+				&utxoOwner, &utxoOwner,
 			},
 		},
-		"OK: deposit for new owner": {
+		"OK: deposit for new owner with change": {
+			state:              defaultState,
 			totalAmountToSpend: 1,
 			totalAmountToBurn:  1,
 			appliedLockState:   locked.StateDeposited,
-			to:                 &recipientOwners,
-			change:             &changeOwners,
+			to:                 &recipientOwner,
+			change:             &changeOwner,
+			keys:               []*secp256k1.PrivateKey{test.Keys[0]},
 			utxos: []*avax.UTXO{
-				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, outputOwners, ids.Empty, ids.Empty, true),
+				generate.UTXO(ids.ID{8, 8}, ctx.AVAXAssetID, 5, utxoOwner, ids.Empty, ids.Empty, true),
 			},
 			expectedIns: func(utxos []*avax.UTXO) []*avax.TransferableInput {
 				return []*avax.TransferableInput{
@@ -413,8 +563,14 @@ func TestLock(t *testing.T) {
 				}
 			},
 			expectedOuts: []*avax.TransferableOutput{
-				generate.Out(ctx.AVAXAssetID, 1, recipientOwners, locked.ThisTxID, ids.Empty),
-				generate.Out(ctx.AVAXAssetID, 3, changeOwners, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 3, changeOwner, ids.Empty, ids.Empty),
+				generate.Out(ctx.AVAXAssetID, 1, recipientOwner, locked.ThisTxID, ids.Empty),
+			},
+			expectedSigners: [][]*secp256k1.PrivateKey{
+				{test.Keys[0]},
+			},
+			expectedOwners: []*secp256k1fx.OutputOwners{
+				&utxoOwner,
 			},
 		},
 	}
@@ -422,20 +578,11 @@ func TestLock(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			require := require.New(t)
-
-			// setup state mock
-			state := state.NewMockState(ctrl)
-			utxoIDs := []ids.ID{}
-			for _, utxo := range tt.utxos {
-				utxoIDs = append(utxoIDs, utxo.InputID())
-				state.EXPECT().GetUTXO(utxo.InputID()).Return(utxo)
-			}
-			state.EXPECT().UTXOIDs(address.Bytes(), ids.Empty, math.MaxInt).Return(utxoIDs, nil)
-			state.EXPECT().GetMultisigAlias(gomock.Any()).Return(nil, database.ErrNotFound).AnyTimes()
+			ctrl := gomock.NewController(t)
 
 			ins, outs, signers, owners, err := defaultCaminoHandler(t).Lock(
-				state,
-				[]*secp256k1.PrivateKey{key},
+				tt.state(t, ctrl, tt.utxos, tt.keys, tt.to, tt.change),
+				tt.keys,
 				tt.totalAmountToSpend,
 				tt.totalAmountToBurn,
 				tt.appliedLockState,
@@ -444,21 +591,15 @@ func TestLock(t *testing.T) {
 				0,
 			)
 
-			var expectedSigners [][]*secp256k1.PrivateKey
 			var expectedIns []*avax.TransferableInput
-
 			if tt.expectedIns != nil {
 				expectedIns = tt.expectedIns(tt.utxos)
-				expectedSigners = make([][]*secp256k1.PrivateKey, len(expectedIns))
-				for i := range expectedIns {
-					expectedSigners[i] = []*secp256k1.PrivateKey{key}
-				}
 			}
 
 			require.ErrorIs(err, tt.expectedErr)
 			require.Equal(expectedIns, ins)
 			require.Equal(tt.expectedOuts, outs)
-			require.Equal(expectedSigners, signers)
+			require.Equal(tt.expectedSigners, signers)
 			require.Equal(tt.expectedOwners, owners)
 		})
 	}

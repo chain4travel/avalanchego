@@ -75,7 +75,7 @@ func (fx *CaminoFx) VerifyTransfer(txIntf, inIntf, credIntf, utxoIntf interface{
 	return fx.Fx.VerifyTransfer(txIntf, inIntf, credIntf, utxoIntf)
 }
 
-func (*Fx) IsNestedMultisig(ownerIntf interface{}, msigIntf interface{}) (bool, error) {
+func (*Fx) HasNestedMultisig(ownerIntf interface{}, msigIntf interface{}) (bool, error) {
 	owner, ok := ownerIntf.(*OutputOwners)
 	if !ok {
 		return false, ErrWrongOwnerType

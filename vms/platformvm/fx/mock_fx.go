@@ -97,6 +97,21 @@ func (mr *MockFxMockRecorder) CreateOutput(arg0, arg1 interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOutput", reflect.TypeOf((*MockFx)(nil).CreateOutput), arg0, arg1)
 }
 
+// HasNestedMultisig mocks base method.
+func (m *MockFx) HasNestedMultisig(arg0, arg1 interface{}) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasNestedMultisig", arg0, arg1)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HasNestedMultisig indicates an expected call of HasNestedMultisig.
+func (mr *MockFxMockRecorder) HasNestedMultisig(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasNestedMultisig", reflect.TypeOf((*MockFx)(nil).HasNestedMultisig), arg0, arg1)
+}
+
 // Initialize mocks base method.
 func (m *MockFx) Initialize(arg0 interface{}) error {
 	m.ctrl.T.Helper()
@@ -124,6 +139,20 @@ func (m *MockFx) RecoverAddresses(arg0 []byte, arg1 []verify.Verifiable) (secp25
 func (mr *MockFxMockRecorder) RecoverAddresses(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecoverAddresses", reflect.TypeOf((*MockFx)(nil).RecoverAddresses), arg0, arg1)
+}
+
+// VerifyMultisigMessage mocks base method.
+func (m *MockFx) VerifyMultisigMessage(arg0 []byte, arg1, arg2, arg3, arg4 interface{}) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "VerifyMultisigMessage", arg0, arg1, arg2, arg3, arg4)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// VerifyMultisigMessage indicates an expected call of VerifyMultisigMessage.
+func (mr *MockFxMockRecorder) VerifyMultisigMessage(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyMultisigMessage", reflect.TypeOf((*MockFx)(nil).VerifyMultisigMessage), arg0, arg1, arg2, arg3, arg4)
 }
 
 // VerifyMultisigOwner mocks base method.
@@ -168,20 +197,6 @@ func (mr *MockFxMockRecorder) VerifyMultisigTransfer(arg0, arg1, arg2, arg3, arg
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyMultisigTransfer", reflect.TypeOf((*MockFx)(nil).VerifyMultisigTransfer), arg0, arg1, arg2, arg3, arg4)
 }
 
-// VerifyMultisigMessage mocks base method.
-func (m *MockFx) VerifyMultisigMessage(arg0 []byte, arg1, arg2, arg3, arg4 interface{}) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "VerifyMultisigMessage", arg0, arg1, arg2, arg3, arg4)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// VerifyMultisigMessage indicates an expected call of VerifyMultisigMessage.
-func (mr *MockFxMockRecorder) VerifyMultisigMessage(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyMultisigMessage", reflect.TypeOf((*MockFx)(nil).VerifyMultisigMessage), arg0, arg1, arg2, arg3, arg4)
-}
-
 // VerifyPermission mocks base method.
 func (m *MockFx) VerifyPermission(arg0, arg1, arg2, arg3 interface{}) error {
 	m.ctrl.T.Helper()
@@ -208,21 +223,6 @@ func (m *MockFx) VerifyTransfer(arg0, arg1, arg2, arg3 interface{}) error {
 func (mr *MockFxMockRecorder) VerifyTransfer(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyTransfer", reflect.TypeOf((*MockFx)(nil).VerifyTransfer), arg0, arg1, arg2, arg3)
-}
-
-// IsNestedMultisig mocks base method.
-func (m *MockFx) IsNestedMultisig(arg0, arg1 interface{}) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsNestedMultisig", arg0, arg1)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// IsNestedMultisig indicates an expected call of IsNestedMultisig.
-func (mr *MockFxMockRecorder) IsNestedMultisig(arg0, arg1 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsNestedMultisig", reflect.TypeOf((*MockFx)(nil).IsNestedMultisig), arg0, arg1)
 }
 
 // MockOwner is a mock of Owner interface.
