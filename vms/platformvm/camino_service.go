@@ -799,13 +799,13 @@ func (s *CaminoService) GetLastAcceptedBlock(r *http.Request, args *api.Encoding
 	return nil
 }
 
-type GetBlockAtHeight struct {
+type GetBlockAtHeightArgs struct {
 	Encoding formatting.Encoding `json:"encoding"`
 	Height   uint32              `json:"height"`
 }
 
 // GetBlockAtHeight returns block at given height
-func (s *CaminoService) GetBlockAtHeight(r *http.Request, args *GetBlockAtHeight, reply *api.GetBlockResponse) error {
+func (s *CaminoService) GetBlockAtHeight(r *http.Request, args *GetBlockAtHeightArgs, reply *api.GetBlockResponse) error {
 	s.vm.ctx.Log.Debug("Platform: GetBlockAtHeight called")
 
 	ctx := r.Context()
