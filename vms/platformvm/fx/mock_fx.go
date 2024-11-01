@@ -97,19 +97,19 @@ func (mr *MockFxMockRecorder) CreateOutput(arg0, arg1 interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOutput", reflect.TypeOf((*MockFx)(nil).CreateOutput), arg0, arg1)
 }
 
-// OwnerContainsMultisig mocks base method.
-func (m *MockFx) OwnerContainsMultisig(arg0, arg1 interface{}) (bool, error) {
+// IsNestedMultisig mocks base method.
+func (m *MockFx) IsNestedMultisig(arg0, arg1 interface{}) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OwnerContainsMultisig", arg0, arg1)
+	ret := m.ctrl.Call(m, "IsNestedMultisig", arg0, arg1)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// OwnerContainsMultisig indicates an expected call of OwnerContainsMultisig.
-func (mr *MockFxMockRecorder) OwnerContainsMultisig(arg0, arg1 interface{}) *gomock.Call {
+// IsNestedMultisig indicates an expected call of IsNestedMultisig.
+func (mr *MockFxMockRecorder) IsNestedMultisig(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OwnerContainsMultisig", reflect.TypeOf((*MockFx)(nil).OwnerContainsMultisig), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsNestedMultisig", reflect.TypeOf((*MockFx)(nil).IsNestedMultisig), arg0, arg1)
 }
 
 // Initialize mocks base method.
