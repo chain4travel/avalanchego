@@ -1540,11 +1540,11 @@ func (e *CaminoStandardTxExecutor) MultisigAliasTx(tx *txs.MultisigAliasTx) erro
 		}
 
 		// verify that alias isn't nesting another alias
-		isNestedMultisig, err := e.Fx.IsNestedMultisig(tx.MultisigAlias.Owners, e.State)
+		isNestedMsig, err := e.Fx.IsNestedMultisig(tx.MultisigAlias.Owners, e.State)
 		switch {
 		case err != nil:
 			return err
-		case isNestedMultisig:
+		case isNestedMsig:
 			return errNestedMsigAlias
 		}
 	}
