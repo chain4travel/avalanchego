@@ -57,7 +57,7 @@ func (c *client) GetAllDepositOffers(ctx context.Context, getAllDepositOffersArg
 
 func (c *client) GetRegisteredShortIDLink(ctx context.Context, addr ids.ShortID, options ...rpc.Option) (string, error) {
 	res := &api.JSONAddress{}
-	err := c.requester.SendRequest(ctx, "platform.getMultisigAlias", &api.JSONAddress{
+	err := c.requester.SendRequest(ctx, "platform.getRegisteredShortIDLink", &api.JSONAddress{
 		Address: addr.String(),
 	}, res, options...)
 	return res.Address, err
