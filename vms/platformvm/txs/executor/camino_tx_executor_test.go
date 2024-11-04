@@ -1673,6 +1673,7 @@ func TestCaminoStandardTxExecutorAddressStateTx(t *testing.T) {
 		remove                 bool
 		currentTargetAddrState as.AddressState
 		executorAddrState      as.AddressState
+		lastValidPhase         test.Phase
 	}
 
 	type testCase struct {
@@ -1984,6 +1985,48 @@ func TestCaminoStandardTxExecutorAddressStateTx(t *testing.T) {
 		}
 	}
 
+	testCaseFailNoOp := map[codec.UpgradeVersionID]testCaseSimpleFunc{}
+	testCaseFailNoOp[codec.UpgradeVersion0] = failCaseSimpleNoOp
+	testCaseFailNoOp[codec.UpgradeVersion1] = func(
+		t *testing.T,
+		phase test.Phase,
+	) {
+		if phase < test.PhaseBerlin {
+			return
+		}
+		testCaseName := fmt.Sprintf("%d_%s/Upgrade 1/NoOp addr state modification is forbidden", phase, test.PhaseName(t, phase))
+		require.NotContains(t, testCases, testCaseName, testCaseName)
+		testCases[testCaseName] = testCase{
+			state: func(t *testing.T, c *gomock.Controller, utx *txs.AddressStateTx, txID ids.ID, cfg *config.Config) *state.MockDiff {
+				s := state.NewMockDiff(c)
+				s.EXPECT().GetTimestamp().Return(test.PhaseTime(t, phase, cfg))
+
+				expect.VerifyMultisigPermission(t, s, []ids.ShortID{utx.Executor}, nil)
+				s.EXPECT().GetAddressStates(utx.Executor).Return(as.AddressStateRoleKYCAdmin, nil)
+
+				s.EXPECT().GetBaseFee().Return(defaultTxFee, nil)
+				expect.VerifyLock(t, s, utx.Ins, []*avax.UTXO{feeUTXO}, []ids.ShortID{feeOwnerAddr}, nil)
+
+				s.EXPECT().GetAddressStates(utx.Address).Return(as.AddressStateConsortium, nil)
+				return s
+			},
+			utx: &txs.AddressStateTx{
+				UpgradeVersionID: codec.UpgradeVersion1,
+				BaseTx:           baseTx,
+				Address:          otherAddr,
+				StateBit:         as.AddressStateBitKYCVerified,
+				Remove:           true,
+				Executor:         executorAddr,
+				ExecutorAuth:     &secp256k1fx.Input{SigIndices: []uint32{0}},
+			},
+			phase: phase,
+			signers: [][]*secp256k1.PrivateKey{
+				{feeOwnerKey}, {executorKey},
+			},
+			expectedErr: errAddrStateNotChanged,
+		}
+	}
+
 	testCaseOK := map[codec.UpgradeVersionID]testCaseFunc{}
 	testCaseOK[codec.UpgradeVersion0] = func(
 		t *testing.T,
@@ -1991,6 +2034,9 @@ func TestCaminoStandardTxExecutorAddressStateTx(t *testing.T) {
 		testCaseName string,
 		phase test.Phase,
 	) {
+		if phase > tt.lastValidPhase {
+			return
+		}
 		testCaseName = fmt.Sprintf("%d_%s/Upgrade 0/%s", phase, test.PhaseName(t, phase), testCaseName)
 		require.NotContains(t, testCases, testCaseName, testCaseName)
 		targetAddr := otherAddr
@@ -2060,6 +2106,9 @@ func TestCaminoStandardTxExecutorAddressStateTx(t *testing.T) {
 		testCaseName string,
 		phase test.Phase,
 	) {
+		if phase > tt.lastValidPhase {
+			return
+		}
 		testCaseName = fmt.Sprintf("%d_%s/Upgrade 1/%s", phase, test.PhaseName(t, phase), testCaseName)
 		require.NotContains(t, testCases, testCaseName, testCaseName)
 		targetAddr := otherAddr
@@ -2192,6 +2241,7 @@ func TestCaminoStandardTxExecutorAddressStateTx(t *testing.T) {
 			txStateBit:             as.AddressStateBitRoleKYCAdmin,
 			currentTargetAddrState: as.AddressStateRoleKYCAdmin,
 			executorAddrState:      as.AddressStateRoleAdmin,
+			lastValidPhase:         test.PhaseAthens,
 		},
 		"OK: modifying executors own address state": {
 			selfModify:             true,
@@ -2210,6 +2260,7 @@ func TestCaminoStandardTxExecutorAddressStateTx(t *testing.T) {
 			remove:                 true,
 			currentTargetAddrState: as.AddressStateConsortium,
 			executorAddrState:      as.AddressStateRoleAdmin,
+			lastValidPhase:         test.PhaseAthens,
 		},
 	}
 
@@ -2305,14 +2356,14 @@ func TestCaminoStandardTxExecutorAddressStateTx(t *testing.T) {
 	}
 
 	for phase := test.PhaseFirst; phase <= test.PhaseLast; phase++ {
-		txUpgrades := txUpgradeMatrix[phase]
-		for _, txUpgrade := range txUpgrades {
+		for _, txUpgrade := range txUpgradeMatrix[phase] {
 			for name, tt := range simpleOKCases {
 				testCaseOK[txUpgrade](t, tt, name, phase)
 			}
 			testCaseOKMultiInput[txUpgrade](t, phase) // noop for upgr1
 			testCaseFailAdminSelfRemove[txUpgrade](t, phase)
 			testCaseFailWrongExecutorCredential[txUpgrade](t, phase) // noop for upgr0 or sunrise phase
+			testCaseFailNoOp[txUpgrade](t, phase)                    // noop for before berlin
 			testCaseFailMultisigAlias[txUpgrade](t, phase)           // noop for upgr1
 		}
 	}

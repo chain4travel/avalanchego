@@ -2351,8 +2351,8 @@ func (e *CaminoStandardTxExecutor) AddressStateTx(tx *txs.AddressStateTx) error 
 	// Set the new state if changed
 	if addrState != newAddrState {
 		e.State.SetAddressStates(tx.Address, newAddrState)
-		// } else {
-		// return errAddrStateNotChanged
+	} else if isBerlinPhase {
+		return errAddrStateNotChanged
 	}
 
 	// Consume the UTXOS
