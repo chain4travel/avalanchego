@@ -609,8 +609,11 @@ func (e *CaminoProposalTxExecutor) RewardValidatorTx(tx *txs.RewardValidatorTx) 
 			}
 
 			// TODO @evlekht if after Berlin we don't have any txs that hit this if, we can move it up, before phase if block
+			// This is sanity check for consistency between address state
+			// and validator presence in deferred stakers
 			if nodeOwnerAddressState.IsNot(as.AddressStateNodeDeferred) {
-				return errAddrStateNotChanged
+				// should never happen
+				return fmt.Errorf("deferred node owner address state doesn't have AddressStateNodeDeferred bit: %w", errAddrStateNotChanged)
 			}
 
 			addrState := nodeOwnerAddressState &^ as.AddressStateNodeDeferred
