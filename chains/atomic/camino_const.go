@@ -4,4 +4,4 @@
 package atomic
 
 // sharedMemorySyncBound is the cross-chain synchrony bound used for safe decision making
-const SharedMemorySyncBound = 60 // seconds
+const SharedMemorySyncBound = 4 // seconds
