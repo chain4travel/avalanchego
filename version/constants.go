@@ -188,6 +188,12 @@ var (
 		constants.CaminoID:     time.Date(2023, time.July, 17, 8, 0, 0, 0, time.UTC),
 	}
 
+	PreCortinaTimes = map[uint32]time.Time{
+		constants.CaminoID:     time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.ColumbusID:   time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.KopernikusID: time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+	}
+
 	// TODO @evlekht update this before release
 	BerlinPhaseTimes = map[uint32]time.Time{
 		constants.KopernikusID: time.Date(2024, time.November, 14, 10, 0, 0, 0, time.UTC),
@@ -279,6 +285,13 @@ func GetBanffTime(networkID uint32) time.Time {
 func GetCortinaTime(networkID uint32) time.Time {
 	if upgradeTime, exists := CortinaTimes[networkID]; exists {
 		return upgradeTime
+	}
+	return CortinaDefaultTime
+}
+
+func GetPreCortinaTime(networkID uint32) time.Time {
+	if genesisTime, exists := PreCortinaTimes[networkID]; exists {
+		return genesisTime
 	}
 	return CortinaDefaultTime
 }
