@@ -85,27 +85,27 @@ var (
 		constants.MainnetID: time.Date(2021, time.March, 31, 14, 0, 0, 0, time.UTC),
 		constants.FujiID:    time.Date(2021, time.March, 26, 14, 0, 0, 0, time.UTC),
 
-		constants.CaminoID:     caminoEarliestTime,
-		constants.ColumbusID:   columbusEarliestTime,
-		constants.KopernikusID: kopernikusEarliestTime,
+		constants.CaminoID:     time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.ColumbusID:   time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.KopernikusID: time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
 	}
 
 	ApricotPhase2Times = map[uint32]time.Time{
 		constants.MainnetID: time.Date(2021, time.May, 10, 11, 0, 0, 0, time.UTC),
 		constants.FujiID:    time.Date(2021, time.May, 5, 14, 0, 0, 0, time.UTC),
 
-		constants.CaminoID:     caminoEarliestTime,
-		constants.ColumbusID:   columbusEarliestTime,
-		constants.KopernikusID: kopernikusEarliestTime,
+		constants.CaminoID:     time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.ColumbusID:   time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.KopernikusID: time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
 	}
 
 	ApricotPhase3Times = map[uint32]time.Time{
 		constants.MainnetID: time.Date(2021, time.August, 24, 14, 0, 0, 0, time.UTC),
 		constants.FujiID:    time.Date(2021, time.August, 16, 19, 0, 0, 0, time.UTC),
 
-		constants.CaminoID:     caminoEarliestTime,
-		constants.ColumbusID:   columbusEarliestTime,
-		constants.KopernikusID: kopernikusEarliestTime,
+		constants.CaminoID:     time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.ColumbusID:   time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.KopernikusID: time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
 	}
 	ApricotPhase3DefaultTime = time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC)
 
@@ -113,9 +113,9 @@ var (
 		constants.MainnetID: time.Date(2021, time.September, 22, 21, 0, 0, 0, time.UTC),
 		constants.FujiID:    time.Date(2021, time.September, 16, 21, 0, 0, 0, time.UTC),
 
-		constants.CaminoID:     caminoEarliestTime,
-		constants.ColumbusID:   columbusEarliestTime,
-		constants.KopernikusID: kopernikusEarliestTime,
+		constants.CaminoID:     time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.ColumbusID:   time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.KopernikusID: time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
 	}
 	ApricotPhase4DefaultTime     = time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC)
 	ApricotPhase4MinPChainHeight = map[uint32]uint64{
@@ -132,9 +132,9 @@ var (
 		constants.MainnetID: time.Date(2021, time.December, 2, 18, 0, 0, 0, time.UTC),
 		constants.FujiID:    time.Date(2021, time.November, 24, 15, 0, 0, 0, time.UTC),
 
-		constants.CaminoID:     caminoEarliestTime,
-		constants.ColumbusID:   columbusEarliestTime,
-		constants.KopernikusID: kopernikusEarliestTime,
+		constants.CaminoID:     time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.ColumbusID:   time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.KopernikusID: time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
 	}
 	ApricotPhase5DefaultTime = time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC)
 
@@ -142,9 +142,9 @@ var (
 		constants.MainnetID: time.Date(2022, time.September, 5, 1, 30, 0, 0, time.UTC),
 		constants.FujiID:    time.Date(2022, time.September, 6, 20, 0, 0, 0, time.UTC),
 
-		constants.CaminoID:     caminoEarliestTime,
-		constants.ColumbusID:   columbusEarliestTime,
-		constants.KopernikusID: kopernikusEarliestTime,
+		constants.CaminoID:     time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.ColumbusID:   time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.KopernikusID: time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
 	}
 
 	SunrisePhase0Times = map[uint32]time.Time{
@@ -157,18 +157,18 @@ var (
 		constants.MainnetID: time.Date(2022, time.September, 6, 20, 0, 0, 0, time.UTC),
 		constants.FujiID:    time.Date(2022, time.September, 6, 20, 0, 0, 0, time.UTC),
 
-		constants.CaminoID:     caminoEarliestTime,
-		constants.ColumbusID:   columbusEarliestTime,
-		constants.KopernikusID: kopernikusEarliestTime,
+		constants.CaminoID:     time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.ColumbusID:   time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.KopernikusID: time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
 	}
 
 	ApricotPhasePost6Times = map[uint32]time.Time{
 		constants.MainnetID: time.Date(2022, time.September, 7, 3, 0, 0, 0, time.UTC),
 		constants.FujiID:    time.Date(2022, time.September, 7, 6, 0, 0, 0, time.UTC),
 
-		constants.CaminoID:     caminoEarliestTime,
-		constants.ColumbusID:   columbusEarliestTime,
-		constants.KopernikusID: kopernikusEarliestTime,
+		constants.CaminoID:     time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.ColumbusID:   time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.KopernikusID: time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
 	}
 	ApricotPhase6DefaultTime = time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC)
 
