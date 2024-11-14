@@ -77,6 +77,7 @@ var (
 	DefaultUpgradeTime    = time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC)
 	unreachableFutureTime = time.Date(10000, time.January, 1, 0, 0, 0, 0, time.UTC)
 
+	// caminoEarliestTime= time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
 	caminoEarliestTime     = time.Date(2022, time.May, 16, 8, 0, 0, 0, time.UTC)
 	columbusEarliestTime   = time.Date(2022, time.May, 16, 8, 0, 0, 0, time.UTC)
 	kopernikusEarliestTime = time.Date(2022, time.May, 16, 8, 0, 0, 0, time.UTC)
@@ -148,9 +149,9 @@ var (
 	}
 
 	SunrisePhase0Times = map[uint32]time.Time{
-		constants.CaminoID:     caminoEarliestTime,
-		constants.ColumbusID:   columbusEarliestTime,
-		constants.KopernikusID: kopernikusEarliestTime,
+		constants.CaminoID:     time.Date(2022, time.May, 16, 8, 0, 0, 0, time.UTC),
+		constants.ColumbusID:   time.Date(2022, time.May, 16, 8, 0, 0, 0, time.UTC),
+		constants.KopernikusID: time.Date(2022, time.May, 16, 8, 0, 0, 0, time.UTC),
 	}
 
 	ApricotPhase6Times = map[uint32]time.Time{
@@ -176,9 +177,9 @@ var (
 		constants.MainnetID: time.Date(2022, time.October, 18, 16, 0, 0, 0, time.UTC),
 		constants.FujiID:    time.Date(2022, time.October, 3, 14, 0, 0, 0, time.UTC),
 
-		constants.CaminoID:     caminoEarliestTime,
-		constants.ColumbusID:   columbusEarliestTime,
-		constants.KopernikusID: kopernikusEarliestTime,
+		constants.CaminoID:     time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.ColumbusID:   time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
+		constants.KopernikusID: time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC),
 	}
 	BanffDefaultTime = time.Date(2020, time.December, 5, 5, 0, 0, 0, time.UTC)
 
