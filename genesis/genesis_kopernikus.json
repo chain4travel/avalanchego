@@ -190,25 +190,6 @@
             "depositOfferMemo": "presale3y"
           }
         ]
-      },
-      {
-        "ethAddr": "0x0000000000000000000000000000000000000000",
-        "avaxAddr": "X-kopernikus1v8weslt4jr4n0m0jseupz9frk9rt83u6x9rsyj",
-        "addressStates": {
-          "consortiumMember": true,
-          "kycVerified": true
-        },
-        "platformAllocations": [
-          {
-            "amount": 400000000000000
-          },
-          {
-            "amount": 600000000000000,
-            "depositDuration": 110376000,
-            "timestampOffset": 0,
-            "depositOfferMemo": "presale3y"
-          }
-        ]
       }
     ],
     "initialMultisigAddresses": [
