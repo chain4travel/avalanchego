@@ -17,7 +17,6 @@ import (
 	"github.com/ava-labs/avalanchego/utils/formatting"
 	"github.com/ava-labs/avalanchego/utils/formatting/address"
 	"github.com/ava-labs/avalanchego/utils/logging"
-	"github.com/ava-labs/avalanchego/utils/math"
 	"github.com/ava-labs/avalanchego/vms/components/avax"
 	"github.com/ava-labs/avalanchego/vms/components/keystore"
 	as "github.com/ava-labs/avalanchego/vms/platformvm/addrstate"
@@ -1013,11 +1012,11 @@ func (s *CaminoService) GetAllDepositOffers(_ *http.Request, args *GetAllDeposit
 		return err
 	}
 
-	timestamp := uint64(args.Timestamp)
+	// timestamp := uint64(args.Timestamp)
 	for _, offer := range allDepositOffers {
-		if offer.Start <= timestamp && offer.End >= timestamp {
-			response.DepositOffers = append(response.DepositOffers, apiOfferFromOffer(offer))
-		}
+		// if offer.Start <= timestamp && offer.End >= timestamp {
+		response.DepositOffers = append(response.DepositOffers, apiOfferFromOffer(offer))
+		// }
 	}
 
 	return nil
@@ -1120,28 +1119,28 @@ func (s *CaminoService) GetCurrentSupply(_ *http.Request, args *GetCurrentSupply
 		return err
 	}
 
-	allOffers, err := s.vm.state.GetAllDepositOffers()
-	if err != nil {
-		return err
-	}
+	// allOffers, err := s.vm.state.GetAllDepositOffers()
+	// if err != nil {
+	// 	return err
+	// }
 
-	chainTimestamp := s.vm.clock.Unix()
+	// chainTimestamp := s.vm.clock.Unix()
 
-	for _, offer := range allOffers {
-		if chainTimestamp <= offer.End && offer.Flags&deposit.OfferFlagLocked == 0 {
-			if offer.TotalMaxAmount != 0 {
-				supply, err = math.Add64(supply, offer.MaxRemainingRewardByTotalMaxAmount())
-				if err != nil {
-					return err
-				}
-			} else if offer.TotalMaxRewardAmount != 0 {
-				supply, err = math.Add64(supply, offer.RemainingReward())
-				if err != nil {
-					return err
-				}
-			}
-		}
-	}
+	// for _, offer := range allOffers {
+	// 	if chainTimestamp <= offer.End && offer.Flags&deposit.OfferFlagLocked == 0 {
+	// 		if offer.TotalMaxAmount != 0 {
+	// 			supply, err = math.Add64(supply, offer.MaxRemainingRewardByTotalMaxAmount())
+	// 			if err != nil {
+	// 				return err
+	// 			}
+	// 		} else if offer.TotalMaxRewardAmount != 0 {
+	// 			supply, err = math.Add64(supply, offer.RemainingReward())
+	// 			if err != nil {
+	// 				return err
+	// 			}
+	// 		}
+	// 	}
+	// }
 	reply.Supply = utilsjson.Uint64(supply)
 	return err
 }
