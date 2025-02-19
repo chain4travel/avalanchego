@@ -133,6 +133,7 @@ type CaminoSpender interface {
 		[]*avax.TransferableInput, // inputs
 		[]*avax.TransferableOutput, // outputs
 		[][]*secp256k1.PrivateKey, // signers
+		[]*secp256k1fx.OutputOwners, // owners
 		error,
 	)
 
@@ -682,6 +683,7 @@ func (h *handler) UnlockDeposit(
 	[]*avax.TransferableInput, // inputs
 	[]*avax.TransferableOutput, // outputs
 	[][]*secp256k1.PrivateKey, // signers
+	[]*secp256k1fx.OutputOwners, // owners
 	error,
 ) {
 	addrs := set.NewSet[ids.ShortID](len(keys)) // The addresses controlled by [keys]
@@ -701,12 +703,12 @@ func (h *handler) UnlockDeposit(
 		state, depositTxSet, currentTimestamp,
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	utxos, err := state.LockedUTXOs(depositTxSet, addrs, locked.StateDeposited)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	kc := secp256k1fx.NewKeychain(keys...) // Keychain consumes UTXOs and creates new ones
@@ -714,6 +716,7 @@ func (h *handler) UnlockDeposit(
 	ins := []*avax.TransferableInput{}
 	outs := []*avax.TransferableOutput{}
 	signers := [][]*secp256k1.PrivateKey{}
+	owners := []*secp256k1fx.OutputOwners{} // owners of consumed utxos
 
 	for _, utxo := range utxos {
 		out, ok := utxo.Out.(*locked.Out)
@@ -765,6 +768,7 @@ func (h *handler) UnlockDeposit(
 			},
 		})
 
+		owners = append(owners, &innerOut.OutputOwners)
 		signers = append(signers, inSigners)
 
 		remainingValue := in.Amount()
@@ -808,7 +812,7 @@ func (h *handler) UnlockDeposit(
 		}
 	}
 
-	return ins, outs, signers, nil
+	return ins, outs, signers, owners, nil
 }
 
 func (h *handler) VerifyLock(

@@ -1376,7 +1376,7 @@ func TestUnlockDeposit(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
-			got, got1, got2, err := testHandler.UnlockDeposit(tt.args.state(ctrl), tt.args.keys, tt.args.depositTxIDs)
+			got, got1, got2, _, err := testHandler.UnlockDeposit(tt.args.state(ctrl), tt.args.keys, tt.args.depositTxIDs) // TODO@ owners
 			if tt.err != nil {
 				require.ErrorContains(t, err, tt.err.Error())
 				return
@@ -1720,6 +1720,29 @@ func TestVerifyUnlockDepositedUTXOs(t *testing.T) {
 				outs: []*avax.TransferableOutput{
 					generate.Out(assetID, 6, owner1, ids.Empty, ids.Empty),
 					generate.Out(assetID, 11, owner1, ids.Empty, bondTxID1),
+				},
+				creds:        []verify.Verifiable{cred1, cred1, cred1},
+				burnedAmount: 1,
+				assetID:      assetID,
+				verifyCreds:  true,
+			},
+		},
+		"OK: verify creds, with burn, partial unlock, no bond": {
+			handlerState: noMsigState,
+			args: args{
+				tx: tx,
+				utxos: []*avax.UTXO{
+					generate.UTXO(ids.ID{9, 9}, assetID, 100, owner1, ids.Empty, ids.Empty, true),
+					generate.UTXO(ids.ID{9, 9}, assetID, 50, owner1, depositTxID1, ids.Empty, true),
+				},
+				ins: []*avax.TransferableInput{
+					generate.In(assetID, 100, ids.Empty, ids.Empty, []uint32{0}),
+					generate.In(assetID, 50, depositTxID1, ids.Empty, []uint32{0}),
+				},
+				outs: []*avax.TransferableOutput{
+					generate.Out(assetID, 10, owner1, ids.Empty, ids.Empty),
+					generate.Out(assetID, 99, owner1, ids.Empty, ids.Empty),
+					generate.Out(assetID, 40, owner1, depositTxID1, ids.Empty),
 				},
 				creds:        []verify.Verifiable{cred1, cred1, cred1},
 				burnedAmount: 1,
